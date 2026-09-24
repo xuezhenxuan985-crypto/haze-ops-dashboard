@@ -1,0 +1,16 @@
+scenario,region,risk_level,risk_score,pm25_1h,band,trend_3h,psi_24h,transport_level,upwind_points
+clear_day,north,1,1.5,26.7,1,2.8499999999999996,43.8,1,4
+clear_day,south,1,1.5,31.3,1,3.0,48.0,1,4
+clear_day,east,1,1.5,27.2,1,3.0999999999999996,40.6,1,4
+clear_day,west,1,1.5,30.8,1,1.700000000000001,48.0,1,4
+clear_day,central,1,1.5,32.7,1,-1.1999999999999993,54.8,1,4
+moderate_haze,north,3,3.5,99.8,2,5.5,125.1,2,70
+moderate_haze,south,3,3.0,107.8,2,4.350000000000001,130.2,2,70
+moderate_haze,east,3,3.0,101.2,2,4.300000000000004,123.3,2,70
+moderate_haze,west,3,3.5,104.5,2,5.25,127.6,2,70
+moderate_haze,central,3,3.0,111.9,2,3.5,140.3,2,70
+haze_episode,north,4,4.0,215.7,3,8.699999999999989,209.8,3,110
+haze_episode,south,4,4.0,231.4,3,11.150000000000006,222.3,3,110
+haze_episode,east,4,4.0,215.8,3,12.450000000000003,206.3,3,110
+haze_episode,west,4,4.0,224.1,3,10.149999999999991,216.1,3,110
+haze_episode,central,4,4.0,244.8,3,10.600000000000009,238.0,3,110

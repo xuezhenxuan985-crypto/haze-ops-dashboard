@@ -1,0 +1,6 @@
+region,risk_level,risk_score,pm25_band,trend_3h,psi_tier
+north,2,2.5,1,,2
+south,2,2.5,1,,2
+east,2,2.5,1,,2
+west,2,2.5,1,,2
+central,2,2.5,1,,2

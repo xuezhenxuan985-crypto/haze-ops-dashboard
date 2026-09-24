@@ -1,0 +1,6 @@
+region,temp_c,humidity_pct,wind_speed_kmh,wind_dir_deg,rainfall_mm,station_count
+north,31.4,70.3,6.9,154.0,0.0,2
+south,29.8,75.2,7.7,158.0,0.0,3
+east,30.5,73.0,7.5,223.0,0.0,5
+west,30.9,71.3,6.7,186.0,0.0,7
+central,30.8,70.6,5.7,125.0,0.0,1
