@@ -70,6 +70,22 @@ class TransportRisk:
 
 
 @dataclass
+class RegionAnalysis:
+    """14-day style regional summary computed by risk.analysis."""
+    region: str
+    hours: int                       # hourly points in the window
+    mean: float
+    median: float
+    max: float
+    hours_elevated: int              # > 55 µg/m³ (Band >= 2)
+    hours_high: int                  # > 150 (Band >= 3)
+    hours_vhigh: int                 # > 250 (Band 4)
+    pct_elevated: float              # % of hours above 55
+    slope_per_day: float | None      # OLS over daily means, µg/m³ per day
+    r2: float | None                 # fit quality; None when < 3 days of data
+
+
+@dataclass
 class WorkMatrix:
     light: str  # "allowed" | "caution" | "restricted"
     moderate: str
@@ -101,5 +117,6 @@ class Snapshot:
     advisories: dict[str, RegionAdvisory]
     rss: RSSStatus
     history_df: Any = None  # pivoted DataFrame (region columns, hourly index)
+    analysis: dict[str, RegionAnalysis] | None = None  # regional 14-day summaries
     firms_points: list[dict] = field(default_factory=list)  # display-only FIRMS detections
     flags: list[str] = field(default_factory=list)

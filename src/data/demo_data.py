@@ -154,3 +154,34 @@ def demo_history_df(pm25: dict[str, RegionPM25]) -> pd.DataFrame:
     ]
     df = pd.DataFrame(rows)
     return df.pivot_table(index="timestamp", columns="region", values="pm25")
+
+
+def demo_analysis_df(scenario: str) -> pd.DataFrame:
+    """Deterministic 14-day hourly per-region history for the analysis tab.
+
+    Same shape as live history (pivoted, region columns, hourly index).
+    Region offsets come from the scenario, so rankings match the card view;
+    pm25_rise gives the window a mild improving/worsening drift so the OLS
+    trend column has something real to show.
+    """
+    cfg = SCENARIOS[scenario]
+    rng = np.random.default_rng(config.DEMO_SEEDS[scenario] + 7)
+    now = datetime.now(SGT).replace(minute=0, second=0, microsecond=0)
+    start = now - timedelta(hours=config.ANALYSIS_DAYS * 24 - 1)
+    rows = []
+    for day in range(config.ANALYSIS_DAYS):
+        for hour in range(24):
+            ts = start + timedelta(days=day, hours=hour)
+            hour_of_day = ts.hour
+            for region in config.REGIONS:
+                v = (
+                    cfg["pm25_base"]
+                    + cfg["region_offsets"][region]
+                    + cfg["pm25_amp"] * math.sin(2 * math.pi * (hour_of_day - 9) / 24)
+                    + cfg["pm25_rise"] * day / max(1, config.ANALYSIS_DAYS - 1)
+                    + rng.normal(0.0, 2.0)
+                )
+                rows.append({"timestamp": ts, "region": region,
+                             "pm25": max(3.0, round(v, 1))})
+    df = pd.DataFrame(rows)
+    return df.pivot_table(index="timestamp", columns="region", values="pm25")

@@ -103,6 +103,76 @@ def psi_chart(snapshot: Snapshot, regions: list[str], lang: str) -> go.Figure:
     return _base_layout(fig)
 
 
+def _mean_kind(mean: float) -> str:
+    """Map a 14-day mean to a status color via the official band edges."""
+    if mean <= 55:
+        return "good"
+    if mean <= 150:
+        return "warning"
+    if mean <= 250:
+        return "serious"
+    return "critical"
+
+
+def region_ranking_chart(snapshot: Snapshot, lang: str) -> go.Figure:
+    """Horizontal bars: 14-day mean PM2.5 per region, colored by severity."""
+    analysis = snapshot.analysis or {}
+    order = sorted(analysis.values(), key=lambda a: a.mean, reverse=True)
+    if not order:
+        fig = go.Figure()
+        fig.add_annotation(text=tr("analysis_insufficient", lang), showarrow=False,
+                           font=dict(color=theme.INK["muted"], size=13))
+        return _base_layout(fig, 280)
+    fig = go.Figure(go.Bar(
+        x=[a.mean for a in order],
+        y=[tr(f"region_{a.region}", lang) for a in order],
+        orientation="h",
+        marker_color=[theme.STATUS[_mean_kind(a.mean)] for a in order],
+        text=[f"{a.mean:.0f}" for a in order],
+        textposition="outside",
+        textfont=dict(color=theme.INK["primary"], size=12),
+    ))
+    fig.add_vline(x=55, line=dict(color=theme.INK["muted"], width=1, dash="dot"), opacity=0.6)
+    fig.update_layout(title=tr("chart_ranking_title", lang))
+    fig.update_xaxes(title=tr("unit_ugm3", lang), range=[0, max(300, max(a.mean for a in order) * 1.15)])
+    fig.update_yaxes(autorange="reversed")
+    return _base_layout(fig)
+
+
+def overrun_share_chart(snapshot: Snapshot, lang: str) -> go.Figure:
+    """Horizontal bars: share of hours above 55 µg/m³ per region."""
+    analysis = snapshot.analysis or {}
+    order = sorted(analysis.values(), key=lambda a: a.pct_elevated, reverse=True)
+    if not order:
+        fig = go.Figure()
+        fig.add_annotation(text=tr("analysis_insufficient", lang), showarrow=False,
+                           font=dict(color=theme.INK["muted"], size=13))
+        return _base_layout(fig, 280)
+    kinds = []
+    for a in order:
+        if a.pct_elevated <= 10:
+            kinds.append("good")
+        elif a.pct_elevated <= 30:
+            kinds.append("warning")
+        elif a.pct_elevated <= 50:
+            kinds.append("serious")
+        else:
+            kinds.append("critical")
+    fig = go.Figure(go.Bar(
+        x=[a.pct_elevated for a in order],
+        y=[tr(f"region_{a.region}", lang) for a in order],
+        orientation="h",
+        marker_color=[theme.STATUS[k] for k in kinds],
+        text=[f"{a.pct_elevated:.0f}%" for a in order],
+        textposition="outside",
+        textfont=dict(color=theme.INK["primary"], size=12),
+    ))
+    fig.update_layout(title=tr("chart_overrun_title", lang))
+    fig.update_xaxes(title="%", range=[0, 100])
+    fig.update_yaxes(autorange="reversed")
+    return _base_layout(fig)
+
+
 def sparkline(r: RegionPM25, region: str) -> go.Figure:
     fig = go.Figure(go.Scatter(
         x=[rd.timestamp for rd in r.readings_24h],

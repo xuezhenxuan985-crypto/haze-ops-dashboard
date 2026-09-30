@@ -4,6 +4,7 @@ Boots app.py in a fake runtime, switches to demo, and checks the page
 renders without exceptions, in both languages.
 """
 from pathlib import Path
+from unittest import mock
 
 import pytest
 from streamlit.testing.v1 import AppTest
@@ -11,8 +12,17 @@ from streamlit.testing.v1 import AppTest
 ROOT = Path(__file__).resolve().parent.parent
 
 
+@pytest.fixture(scope="module", autouse=True)
+def _no_backfill():
+    """AppTest boots in live mode first, which would otherwise kick off a
+    real 14-day NEA backfill (~25 s of rate-limited API calls)."""
+    import src.data.nea_pm25 as nea_pm25
+    with mock.patch.object(nea_pm25, "fetch_pm25_backfill", return_value=[]):
+        yield
+
+
 @pytest.fixture(scope="module")
-def at() -> AppTest:
+def at(_no_backfill: None) -> AppTest:
     app = AppTest.from_file(str(ROOT / "app.py"), default_timeout=60)
     app.run()
     assert not app.exception, app.exception
@@ -25,8 +35,8 @@ def test_demo_page_renders(at: AppTest):
     assert at.session_state["mode"] == "demo"
     # KPI metrics present (5 of them).
     assert len(at.metric) >= 5
-    # Tabs exist.
-    assert len(at.tabs) == 3
+    # Tabs exist (air quality, hotspots, decisions, history analysis).
+    assert len(at.tabs) == 4
     # Region cards / markdown rendered.
     assert at.markdown
     # Demo note flag shown (rendered as an info banner, not markdown).
@@ -34,11 +44,21 @@ def test_demo_page_renders(at: AppTest):
     assert "Demo data" in infos or "演示数据" in infos
 
 
+def test_analysis_tab_renders(at: AppTest):
+    # clear_day keeps every region below 55 -> clean summary + "Most stable".
+    texts = " ".join(m.value for m in at.markdown)
+    assert "averaged below 55" in texts or "平均都在 55" in texts
+    html = " ".join(m.value for m in at.markdown)
+    assert "Most stable" in html or "最稳定" in html
+
+
 def test_zh_language_switch(at: AppTest):
     at.sidebar.segmented_control[0].set_value("中文").run()
     assert not at.exception, at.exception
     texts = " ".join(m.value for m in at.markdown)
     assert "雾霾运营台" in texts
+    # The analysis tab is translated too.
+    assert "14 天区域总结" in texts
 
 
 def test_scenario_switch_changes_data(at: AppTest):

@@ -19,7 +19,7 @@ import pandas as pd
 import streamlit as st
 
 import config
-from ..risk import advisory, bands, engine, transport
+from ..risk import advisory, analysis as risk_analysis, bands, engine, transport
 from . import demo_data, history, hotspots, nea_pm25, nea_psi, nea_weather
 from .models import (Reading, RegionAdvisory, RegionPM25, RegionPSI, RegionWeather,
                      RSSStatus, Snapshot, SourceHotspots)
@@ -110,6 +110,29 @@ def _load_history(force_version: int) -> pd.DataFrame | None:
     return history.load_pm25_history()
 
 
+@st.cache_data(ttl=config.TTL_ANALYSIS_HISTORY, show_spinner=False)
+def _load_analysis_history(force_version: int) -> pd.DataFrame | None:
+    """14-day window for the analysis tab; NEA date-param backfill on demand.
+
+    The backfill is ~25-30 s (one rate-limited GET per day), so this loader
+    has its own 6-h TTL and only runs when coverage is low (fresh deploys,
+    cloud filesystem resets). On failure the collected history is returned
+    as-is; the caller adds flag_analysis_partial.
+    """
+    df = history.load_pm25_history_window(config.ANALYSIS_DAYS)
+    covered = float(df.count().mean()) if df is not None and not df.empty else 0.0
+    expected = config.ANALYSIS_DAYS * 24.0
+    if covered < expected * config.ANALYSIS_COVERAGE_MIN:
+        try:
+            rows = nea_pm25.fetch_pm25_backfill(config.ANALYSIS_DAYS)
+            if rows:
+                history.append_pm25_rows(rows)
+                df = history.load_pm25_history_window(config.ANALYSIS_DAYS)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("pm25 backfill failed: %s", exc)
+    return df
+
+
 # ---------------------------------------------------------------------------
 # Shared assembly
 # ---------------------------------------------------------------------------
@@ -140,6 +163,7 @@ def assemble_snapshot(
     hotspots_: dict[str, SourceHotspots],
     rss: RSSStatus,
     history_df: pd.DataFrame | None,
+    analysis_df: pd.DataFrame | None,
     firms_points: list[dict],
     flags: list[str],
     freshness: dict[str, datetime | None],
@@ -195,6 +219,7 @@ def assemble_snapshot(
         advisories=advisories,
         rss=rss,
         history_df=history_df,
+        analysis=risk_analysis.analysis_from_history(analysis_df) if analysis_df is not None else None,
         firms_points=firms_points,
         flags=flags,
     )
@@ -208,8 +233,9 @@ def _demo_inputs(scenario: str):
     rss = demo_data.demo_fetch_rss(scenario)
     return dict(
         mode="demo", pm25=pm25, psi=psi, weather=weather, hotspots_=sources, rss=rss,
-        history_df=demo_data.demo_history_df(pm25), firms_points=[],
-        flags=["demo_data_note"],
+        history_df=demo_data.demo_history_df(pm25),
+        analysis_df=demo_data.demo_analysis_df(scenario),
+        firms_points=[], flags=["demo_data_note"],
         freshness={"pm25": t1, "psi": t2, "weather": t3, "hotspots": t4, "rss": rss.fetched_at},
     )
 
@@ -243,6 +269,10 @@ def get_snapshot(mode: str, scenario: str, force_version: int, firms_key: str) -
         flags.append("flag_stale_hotspots")
     rss = _load_rss(force_version)
     history_df = _load_history(force_version)
+    analysis_df = _load_analysis_history(force_version)
+    analysis_hours = float(analysis_df.count().mean()) if analysis_df is not None and not analysis_df.empty else 0.0
+    if analysis_hours < 24 * 3:  # < 3 days — too little even for a trend slope
+        flags.append("flag_analysis_partial")
 
     # FIRMS enrichment (optional key) + fallback when ASMC is fully down.
     firms_points: list[dict] = []
@@ -278,6 +308,6 @@ def get_snapshot(mode: str, scenario: str, force_version: int, firms_key: str) -
     }
     return assemble_snapshot(
         mode="live", pm25=pm25, psi=psi, weather=weather, hotspots_=sources,
-        rss=rss, history_df=history_df, firms_points=firms_points,
-        flags=flags, freshness=freshness,
+        rss=rss, history_df=history_df, analysis_df=analysis_df,
+        firms_points=firms_points, flags=flags, freshness=freshness,
     )

@@ -12,7 +12,8 @@ import streamlit as st
 
 import config
 from ..i18n import tr
-from ..data.models import RegionAdvisory, RegionPM25, RegionPSI, RegionWeather, Snapshot
+from ..data.models import (RegionAdvisory, RegionAnalysis, RegionPM25, RegionPSI,
+                           RegionWeather, Snapshot)
 from . import charts, theme
 
 SGT = timezone(timedelta(hours=8))
@@ -236,6 +237,86 @@ def render_weather_strip(snapshot: Snapshot, regions: list[str], lang: str) -> N
                 if w.rainfall_mm > 0:
                     lines.append(f"{tr('label_rain', lang)} {w.rainfall_mm:.1f} {tr('unit_mm', lang)}")
             st.markdown("<br>".join(lines), unsafe_allow_html=True)
+
+
+# ---------------------------------------------------------------------------
+# History analysis tab
+# ---------------------------------------------------------------------------
+def _analysis_trend_cell(a: RegionAnalysis, lang: str) -> str:
+    if a.slope_per_day is None:
+        return theme.chip_html(tr("analysis_trend_na", lang), "neutral")
+    if a.slope_per_day >= 0.5:
+        return theme.chip_html(f"▲ +{a.slope_per_day:.1f} {tr('analysis_trend_up', lang)}", "serious")
+    if a.slope_per_day <= -0.5:
+        return theme.chip_html(f"▼ {a.slope_per_day:.1f} {tr('analysis_trend_down', lang)}", "good")
+    return theme.chip_html(f"→ {a.slope_per_day:+.1f} {tr('analysis_trend_flat', lang)}", "neutral")
+
+
+def _analysis_verdicts(ordered: list[RegionAnalysis], lang: str) -> dict[str, str]:
+    verdicts: dict[str, str] = {}
+    worst = ordered[0]
+    stable = min(ordered, key=lambda a: a.mean)
+    for a in ordered:
+        if a.region == worst.region and worst.mean > 55:
+            verdicts[a.region] = theme.chip_html(tr("analysis_verdict_worst", lang), "critical")
+        elif a.region == stable.region:
+            verdicts[a.region] = theme.chip_html(tr("analysis_verdict_stable", lang), "good")
+        elif a.mean > 55:
+            verdicts[a.region] = theme.chip_html(tr("analysis_verdict_watch", lang), "warning")
+        else:
+            verdicts[a.region] = ""
+    return verdicts
+
+
+def render_analysis_tab(snapshot: Snapshot, lang: str) -> None:
+    """14-day regional ranking: summary banner + table + two bar charts."""
+    st.markdown(f"**{tr('analysis_title', lang)}**")
+    st.caption(tr("analysis_window_caption", lang, days=config.ANALYSIS_DAYS))
+    analysis = snapshot.analysis
+    regions = [a for a in (analysis or {}).values() if a.hours > 0]
+    if not regions:
+        st.info(tr("analysis_insufficient", lang), icon="📉")
+        return
+
+    worst = max(regions, key=lambda a: a.mean)
+    if worst.mean > 55:
+        st.markdown(tr("analysis_summary", lang, days=config.ANALYSIS_DAYS,
+                       region=tr(f"region_{worst.region}", lang),
+                       mean=f"{worst.mean:.0f}", pct=f"{worst.pct_elevated:.0f}"))
+    else:
+        st.markdown(tr("analysis_summary_clean", lang, days=config.ANALYSIS_DAYS))
+
+    ordered = sorted(regions, key=lambda a: a.mean, reverse=True)
+    verdicts = _analysis_verdicts(ordered, lang)
+    header = "".join(
+        f"<th>{tr(k, lang)}</th>" for k in (
+            "analysis_col_region", "analysis_col_mean", "analysis_col_median",
+            "analysis_col_max", "analysis_col_hours_el", "analysis_col_pct",
+            "analysis_col_trend", "analysis_col_verdict",
+        )
+    )
+    rows = []
+    for a in ordered:
+        rows.append(
+            f"<tr><td><b>{tr(f'region_{a.region}', lang)}</b></td>"
+            f"<td>{a.mean:.1f}</td><td>{a.median:.1f}</td><td>{a.max:.1f}</td>"
+            f"<td>{a.hours_elevated}</td><td>{a.pct_elevated:.0f}%</td>"
+            f"<td>{_analysis_trend_cell(a, lang)}</td>"
+            f"<td>{verdicts[a.region]}</td></tr>"
+        )
+    st.markdown(
+        f"<table class='haze-matrix'><tr>{header}</tr>{''.join(rows)}</table>",
+        unsafe_allow_html=True,
+    )
+    st.caption(tr("analysis_note", lang))
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.plotly_chart(charts.region_ranking_chart(snapshot, lang),
+                        width="stretch", config={"displayModeBar": False})
+    with c2:
+        st.plotly_chart(charts.overrun_share_chart(snapshot, lang),
+                        width="stretch", config={"displayModeBar": False})
 
 
 # ---------------------------------------------------------------------------

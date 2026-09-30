@@ -29,6 +29,7 @@ python3 -m venv .venv
 | 火点（Sumatra / Kalimantan / P. Malaysia） | ASMC `DailyJP1NOAA20.{region}.txt` | 每次 NOAA-20 过境（约 2 次/天） | 主干，免 key |
 | 7 日火点计数 / 警报 | ASMC AJAX / RSS | 约 1 天 / 实时 | 仅作昨日对比（该接口经常滞后/为零）与 Alert Level 展示 |
 | FIRMS 逐点火点 | NASA FIRMS CSV | 约 3 小时近实时 | 可选富化（需 key） |
+| 历史回填（过去 14 天每小时 PM2.5） | NEA v2 realtime API `pm25?date=` | 覆盖不足时一次性回填（6h 缓存） | 支撑"历史分析"页的区域排行与趋势；与实时采集写入同一 CSV，读取时按 (时间, 区域) 去重。云端临时文件系统在重部署后会清空，自动重新回填 |
 
 **站点→区域映射**：官方不存在，本项目使用自建策展表（19 站，基于官方坐标与 NEA 城镇分区）；
 降雨 88 站按最近区域锚点自动归类（近似值，见 `config.STATION_REGION` / `REGION_ANCHORS` 注释）。
@@ -48,6 +49,7 @@ python3 -m venv .venv
 | 传输风险 | 逐火点：距离权重 d<400 km → 1.0、d<700 → 0.6、其余 0.3；风向来向与"新加坡→火点"方位角差 ≤45° 扇区匹配 → 1.0，不匹配 0.35，无风 0.5；今日点数 ≥ 2× 昨日 → ×1.2；等级 0 / <20 / <80 / <200 / ≥200 |
 | 区域风险分 | `band + 趋势项 + 传输等级加值{0,0.5,1,1.5,1.5} − 降雨(≥1mm→0.5) − 风速(≥20km/h→0.5)`，clamp[1,4]，分界 1.5/2.5/3.5 |
 | 工作决策 | 即时行动键控 1-hr PM2.5 波段（NEA 健康建议措辞）；工作规划键控 24-hr PSI（MOM 雇主措施措辞）；工作强度矩阵：≤100 全允许；101–200 中度/高强度谨慎；201–300 高强度受限；>300 轻度谨慎、中度/高强度受限 |
+| 历史区域分析 | 每区域 14 天窗口统计：均值/中位/峰值、>55 小时数与占比、日均值 OLS 拟合斜率（µg/m³/天）+ R²；不足 3 天时趋势为空 |
 
 > **措辞铁律**：PSI >300 的指引是"尽量减少户外作业并推迟非必要作业"，**绝不表述为全面停工**
 > （MOM 官方表述，>400 才强调推迟非必要作业）。单元测试断言文案中不含 "stop work / 全面停止"。
@@ -65,7 +67,7 @@ python3 -m venv .venv
 app.py                 # Streamlit 入口（sidebar + @st.fragment(run_every=300)）
 config.py              # 全部常量：端点、TTL、阈值、站点映射、权重
 src/data/              # 获取与组装（fetcher/nea_*/hotspots/demo/history/pipeline）
-src/risk/              # 纯函数风险层（bands/transport/engine/advisory）
+src/risk/              # 纯函数风险层（bands/transport/engine/advisory/analysis）
 src/i18n.py            # EN/中文 全部文案
 src/ui/                # 纯渲染层（theme/components/charts/map_view）
 tests/                 # pytest（含 AppTest 全应用冒烟）

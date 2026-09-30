@@ -89,8 +89,9 @@ def main() -> None:
         with col:
             components.render_region_card(region, snapshot, lang)
 
-    tab_aq, tab_hs, tab_dec = st.tabs([
-        tr("tab_air_quality", lang), tr("tab_hotspots", lang), tr("tab_decisions", lang),
+    tab_aq, tab_hs, tab_dec, tab_an = st.tabs([
+        tr("tab_air_quality", lang), tr("tab_hotspots", lang),
+        tr("tab_decisions", lang), tr("tab_analysis", lang),
     ])
 
     with tab_aq:
@@ -125,6 +126,9 @@ def main() -> None:
     with tab_dec:
         for region in regions:
             components.render_region_decision(region, snapshot, lang)
+
+    with tab_an:
+        components.render_analysis_tab(snapshot, lang)
 
     components.render_footer(lang)
 

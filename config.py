@@ -12,6 +12,8 @@ BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 HISTORY_CSV = DATA_DIR / "history_pm25.csv"
 HISTORY_HOURS = 48
+ANALYSIS_DAYS = 14          # history-analysis window (NEA date-param backfill)
+ANALYSIS_COVERAGE_MIN = 0.6  # trigger backfill below this fraction of expected hours
 
 # ---------------------------------------------------------------------------
 # Regions (NEA 1-hr PM2.5 / 24-hr PSI reporting regions)
@@ -100,6 +102,7 @@ TTL_HOTSPOTS = 900      # ASMC updates ~2x/day; poll cheaply
 TTL_FIRMS = 1800
 TTL_RSS = 1800
 TTL_HISTORY = 300
+TTL_ANALYSIS_HISTORY = 21600  # 6 h — the 14-day backfill is expensive (1 GET/day)
 TTL_SNAPSHOT = 300
 FRAGMENT_REFRESH_S = 300
 

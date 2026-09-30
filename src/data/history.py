@@ -1,8 +1,10 @@
 """Append-only CSV history for 1-hr PM2.5 so the 24-h trend survives restarts.
 
 Writes happen inside the cached pm25 loader (at most once per TTL); reads
-dedupe (concurrent browser sessions), prune to the last 48 h and resample
-to hourly. Demo mode never writes history.
+dedupe (concurrent browser sessions), prune to the requested window and
+resample to hourly. Demo mode never writes history. The 14-day analysis
+tab reads a longer window than the 24-h chart; both come from this file,
+so the NEA ?date= backfill and the live appends dedupe naturally.
 """
 from __future__ import annotations
 
@@ -22,8 +24,28 @@ def append_pm25_row(region: str, timestamp_iso: str, value: float) -> None:
         pass
 
 
+def append_pm25_rows(rows: list[tuple[str, str, float]]) -> None:
+    """Batch-append (timestamp_iso, region, value) rows — best effort."""
+    if not rows:
+        return
+    try:
+        config.DATA_DIR.mkdir(exist_ok=True)
+        with open(config.HISTORY_CSV, "a", encoding="utf-8") as f:
+            for ts, region, value in rows:
+                f.write(f"{ts},{region},{value:.1f}\n")
+    except OSError:
+        pass
+
+
 def load_pm25_history() -> pd.DataFrame | None:
-    """Return pivoted hourly history (region columns) or None when absent/empty."""
+    """Pivoted hourly history (region columns) for the 24-h chart, or None."""
+    return load_pm25_history_window(config.HISTORY_HOURS / 24.0)
+
+
+def load_pm25_history_window(days: float) -> pd.DataFrame | None:
+    """Pivoted hourly history (region columns) for the last `days` (fractional
+    OK), or None when absent/empty. Reads dedupe, so backfilled rows and
+    live appends for the same hour merge to the last value written."""
     if not config.HISTORY_CSV.exists():
         return None
     try:
@@ -38,7 +60,7 @@ def load_pm25_history() -> pd.DataFrame | None:
         return None
     df["timestamp"] = df["timestamp"].dt.tz_convert("Asia/Singapore")
     df = df.drop_duplicates(subset=["timestamp", "region"], keep="last")
-    cutoff = pd.Timestamp.now(tz="Asia/Singapore") - pd.Timedelta(hours=config.HISTORY_HOURS)
+    cutoff = pd.Timestamp.now(tz="Asia/Singapore") - pd.Timedelta(hours=days * 24.0)
     df = df[df["timestamp"] >= cutoff]
     piv = df.pivot_table(index="timestamp", columns="region", values="pm25")
     piv = piv.reindex(columns=[r for r in config.REGIONS if r in piv.columns])

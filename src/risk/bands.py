@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import config
 from ..data.models import Reading
+from .analysis import ols_fit
 
 
 def pm25_band(value: float) -> int:
@@ -40,12 +41,5 @@ def trend_slope(readings: list[Reading]) -> float | None:
     if len(readings) < 3:
         return None
     readings = readings[-config.TREND_WINDOW_POINTS:]
-    xs = list(range(len(readings)))
-    ys = [r.value for r in readings]
-    n = len(xs)
-    x_mean = sum(xs) / n
-    y_mean = sum(ys) / n
-    denom = sum((x - x_mean) ** 2 for x in xs)
-    if denom == 0:
-        return 0.0
-    return sum((x - x_mean) * (y - y_mean) for x, y in zip(xs, ys)) / denom
+    slope, _, _ = ols_fit(list(range(len(readings))), [r.value for r in readings])
+    return slope
