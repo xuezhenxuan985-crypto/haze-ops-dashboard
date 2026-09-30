@@ -1,33 +1,51 @@
-"""Generate the analysis charts (fig01–fig08) into analysis/charts/.
+"""Generate the history-pattern charts (fig01–fig08) into analysis/charts/.
 
-Reproducible offline: reads only analysis/data/*.csv (see fetch_snapshot.py).
-Run from the repo root:
+Reproducible offline: reads only analysis/data/pm25_90d.csv and
+analysis/data/psi_90d.csv (see fetch_history.py). Run from the repo root:
     .venv/bin/python analysis/scripts/make_charts.py
 
-Design follows the project dataviz method: light surface #fcfcfb, ink tokens,
-hairline grids, thin marks, one axis per panel, fixed categorical hues per
-region/source, status colors only for PM2.5 bands (always labelled).
+Design follows the project dataviz method: light surface #fcfcfb, ink
+tokens, hairline grids, fixed categorical hues per region, status colors
+only for PM2.5 bands (always labelled). Chart text is Chinese (macOS CJK
+font when available) so the findings read naturally for the user.
 """
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 import matplotlib
+from matplotlib import font_manager
+import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib.colors import LinearSegmentedColormap
 
 CHECK_LAYOUT = os.environ.get("CHECK_LAYOUT") == "1"
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+from src.risk.analysis import ols_fit  # noqa: E402
+
 DATA = ROOT / "analysis" / "data"
 OUT = ROOT / "analysis" / "charts"
 OUT.mkdir(parents=True, exist_ok=True)
 
+
+def _cjk_font() -> str:
+    installed = {f.name for f in font_manager.fontManager.ttflist}
+    for name in ("PingFang SC", "Hiragino Sans GB", "STHeiti", "Arial Unicode MS"):
+        if name in installed:
+            return name
+    return "DejaVu Sans"
+
+
 matplotlib.rcParams.update({
     "font.family": "sans-serif",
-    "font.sans-serif": ["DejaVu Sans"],
+    "font.sans-serif": [_cjk_font(), "DejaVu Sans"],
+    "axes.unicode_minus": False,
     "figure.facecolor": "#fcfcfb",
     "axes.facecolor": "#fcfcfb",
     "axes.edgecolor": "#c3c2b7",
@@ -53,21 +71,24 @@ BASE = "#c3c2b7"
 SURFACE = "#fcfcfb"
 CONTEXT_GRAY = "#b9b7ae"
 
-# Categorical slots, fixed per entity (never re-ordered between charts).
+# Categorical slots, fixed per region (never re-ordered between charts).
 REGION_ORDER = ["north", "south", "east", "west", "central"]
 REGION_COLORS = {
-    "north": "#2a78d6",    # slot 1 blue
-    "south": "#eb6834",    # slot 2 orange
-    "east": "#1baf7a",     # slot 3 aqua
-    "west": "#eda100",     # slot 4 yellow
-    "central": "#e87ba4",  # slot 5 magenta
+    "north": "#2a78d6",
+    "south": "#eb6834",
+    "east": "#1baf7a",
+    "west": "#eda100",
+    "central": "#e87ba4",
 }
-SOURCE_COLORS = {"kalimantan": "#2a78d6", "sumatra": "#eb6834", "p_malaysia": "#1baf7a"}
+REGION_ZH = {"north": "北部", "south": "南部", "east": "东部", "west": "西部", "central": "中部"}
 
-# PM2.5 bands (status, fixed — always shipped with labels).
-BANDS = [(1, "Band 1 Normal", "#0ca30c"), (2, "Band 2 Elevated", "#fab219"),
-         (3, "Band 3 High", "#ec835a"), (4, "Band 4 Very High", "#d03b3b")]
+# PM2.5 bands (status colors, always shipped with labels).
+BANDS = [(1, "Band 1 正常 ≤55", "#0ca30c"), (2, "Band 2 偏高 56–150", "#fab219"),
+         (3, "Band 3 高 151–250", "#ec835a"), (4, "Band 4 非常高 ≥251", "#d03b3b")]
 BAND_EDGES = [55, 150, 251]
+
+HAZE_CMAP = LinearSegmentedColormap.from_list(
+    "haze", ["#f6efe0", "#f4d178", "#ec835a", "#d03b3b"])
 
 DPI = 150
 
@@ -82,8 +103,10 @@ def band_of(v: float) -> int:
     return 4
 
 
+BAND_COLORS = {b: c for b, _, c in BANDS}
+
+
 def bare_ax(ax) -> None:
-    """Hairline spines, y-only grid, recessive ticks."""
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     ax.spines["left"].set_color(BASE)
@@ -99,24 +122,9 @@ def header(fig, title: str, subtitle: str, source: str) -> None:
     fig.text(0.99, 0.005, f"source: {source}", ha="right", fontsize=7.5, color=MUTED)
 
 
-def legend_out(ax, handles, labels, ncol=1, fontsize=8.5) -> None:
-    ax.legend(handles, labels, frameon=False, fontsize=fontsize, ncol=ncol,
-              loc="upper left", borderaxespad=0.5, handlelength=1.6, labelcolor=INK)
-
-
-def bar_tip_labels(ax, bars, fmt="{:g}", dy=1, fontsize=8) -> None:
-    top = ax.get_ylim()[1]
-    for b in bars:
-        h = b.get_height()
-        if h > 0:
-            ax.annotate(fmt.format(h), (b.get_x() + b.get_width() / 2, min(h + dy, top * 0.995)),
-                        ha="center", va="bottom", fontsize=fontsize, color=INK)
-
-
-def threshold_lines(ax, edges, xmax, labels, fontsize=7.5) -> None:
-    for y, lab in zip(edges, labels):
-        ax.axhline(y, color=BASE, lw=1.0, zorder=2)
-        ax.text(xmax, y, f"  {lab}", ha="left", va="center", fontsize=fontsize, color=MUTED)
+def legend_out(ax, ncol=1, fontsize=8.5, loc="upper left", **kw) -> None:
+    ax.legend(frameon=False, fontsize=fontsize, ncol=ncol, loc=loc,
+              borderaxespad=0.5, handlelength=1.6, labelcolor=INK, **kw)
 
 
 def save(fig, name: str) -> None:
@@ -133,8 +141,6 @@ def check_layout(fig, name: str) -> None:
     fig_texts = set(id(t) for t in fig.texts)
     texts = [a for a in fig.findobj(matplotlib.text.Text)
              if a.get_text().strip() and (a.axes is not None or id(a) in fig_texts)]
-    # Annotation.get_window_extent() unions in the arrow patch; measure the text
-    # alone (Text.get_window_extent) so leader lines don't count as text overlap.
     boxes = [(a, (matplotlib.text.Text.get_window_extent(a)
                   if isinstance(a, matplotlib.text.Annotation)
                   else a.get_window_extent()))
@@ -148,370 +154,347 @@ def check_layout(fig, name: str) -> None:
                 inter = (min(ba.x1, bb.x1) - max(ba.x0, bb.x0)) * (min(ba.y1, bb.y1) - max(ba.y0, bb.y0))
                 small = min(ba.width * ba.height, bb.width * bb.height)
                 if inter > 0.35 * small and a.get_text() != b.get_text():
-                    print(f"  [LAYOUT] {name}: texts overlap: {a.get_text()!r} {ba} <-> {b.get_text()!r} {bb}")
+                    print(f"  [LAYOUT] {name}: texts overlap: {a.get_text()!r} <-> {b.get_text()!r}")
                     issues += 1
     canvas = (fig.bbox.width, fig.bbox.height)
     for a, bb in boxes:
         if bb.x0 < -2 or bb.y0 < -2 or bb.x1 > canvas[0] + 2 or bb.y1 > canvas[1] + 2:
-            print(f"  [LAYOUT] {name}: text outside canvas: {a.get_text()!r} {bb}")
+            print(f"  [LAYOUT] {name}: text outside canvas: {a.get_text()!r}")
             issues += 1
     if not issues:
         print(f"  [LAYOUT] {name}: ok")
 
 
 # ---------------------------------------------------------------------------
-# fig01 — the history file is mostly duplicates
+# Data (frozen CSVs from fetch_history.py; wall-clock index for plotting)
 # ---------------------------------------------------------------------------
-raw = pd.read_csv(DATA / "history_pm25_raw.csv", names=["ts", "region", "pm25"])
-raw["ts"] = pd.to_datetime(raw["ts"], format="ISO8601", utc=True).dt.tz_convert("Asia/Singapore")
-n_unique = raw.groupby("ts").size()
-n_total = raw.groupby("ts").size()  # same grouping; computed per hour below
-rows_per_ts = raw.groupby("ts").size()
-labels = [t.strftime("%d %b, %H:%M") for t in rows_per_ts.index]
+def load(name: str) -> pd.DataFrame:
+    df = pd.read_csv(DATA / name)
+    df["timestamp"] = pd.to_datetime(df["timestamp"], format="ISO8601", utc=True)
+    df["timestamp"] = df["timestamp"].dt.tz_convert("Asia/Singapore")
+    return df.set_index("timestamp")
 
-fig, ax = plt.subplots(figsize=(8.2, 4.4))
-x = np.arange(len(rows_per_ts))
-ax.bar(x, 5, width=0.55, color="#2a78d6", label="unique (timestamp, region) pairs")
-ax.bar(x, rows_per_ts.values - 5, width=0.55, bottom=5, color="#eb6834",
-       edgecolor=SURFACE, linewidth=2, label="duplicate rows")
-for i, total in enumerate(rows_per_ts.values):
-    ax.text(x[i], total + 3, f"{total} rows", ha="center", fontsize=8.5, color=INK)
-    ax.text(x[i], 2.5, "5", ha="center", fontsize=7.5, color=SURFACE)
-ax.set_xticks(x, labels)
-ax.set_ylim(-36, 132)
-ax.set_ylabel("rows appended to CSV per hour", fontsize=9)
-ax.text(2, -28, "append volume ×11 in 6 hours — every 5-min TTL refetch per session appends again",
-        ha="center", fontsize=8, color=INK2)
-bare_ax(ax)
-legend_out(ax, *ax.get_legend_handles_labels())
-n_dup = len(raw) - raw.groupby(["ts", "region"]).ngroups
-header(fig,
-       f"The history CSV is {n_dup / len(raw) * 100:.0f}% duplicate rows",
-       f"data/history_pm25.csv: {len(raw)} rows, {raw.groupby(['ts', 'region']).ngroups} unique readings — "
-       "each fetch appends a fresh copy of every hourly value",
-       "analysis/data/history_pm25_raw.csv")
-save(fig, "fig01_history_duplication.png")
+
+pm = load("pm25_90d.csv")
+psi = load("psi_90d.csv")
+island = pm.mean(axis=1)          # island-average hourly PM2.5
+island_psi = psi.mean(axis=1)     # island-average hourly PSI
+daily = island.resample("D").mean().dropna()
+daily.index = daily.index.tz_localize(None)
+region_daily = pm.resample("D").mean().dropna(how="all")
+region_daily.index = region_daily.index.tz_localize(None)
+
+WINDOW = f"{daily.index[0]:%Y-%m-%d} – {daily.index[-1]:%Y-%m-%d}"
+
+
+def _ols(series: pd.Series) -> tuple[float, float, float]:
+    return ols_fit([float(i) for i in range(len(series))], [float(v) for v in series.values])
+
 
 # ---------------------------------------------------------------------------
-# fig02 — real Sep 17–18 timeline, central evening spike, data gap
+# fig01 — island daily mean + 90-day OLS trend
 # ---------------------------------------------------------------------------
-window = raw[raw.ts < pd.Timestamp("2026-09-19", tz="Asia/Singapore")]
-piv = window.pivot_table(index="ts", columns="region", values="pm25", aggfunc="last")
-piv.index = piv.index.tz_localize(None)  # plot in SGT wall-clock (matplotlib would use UTC)
-fig, ax = plt.subplots(figsize=(9.2, 4.6))
-for region in REGION_ORDER:
-    s = piv[region]
-    ax.plot(s.index, s.values, lw=2, color=REGION_COLORS[region], label=region,
-            marker="o", ms=5, mfc=REGION_COLORS[region], mec=SURFACE, mew=2, zorder=5)
-gap_lo, gap_hi = pd.Timestamp("2026-09-17 20:00"), pd.Timestamp("2026-09-17 23:00")
-ax.axvspan(gap_lo, gap_hi, color=GRID, zorder=0)
-ax.text(gap_lo + (gap_hi - gap_lo) / 2, 108, "no data collected\n(app closed, 20:00–22:00)",
-        ha="center", va="top", fontsize=8, color=INK2)
-ax.axhspan(56, 110, color="#fab219", alpha=0.08, zorder=0)
+slope, intercept, r2 = _ols(daily)
+word = "恶化" if slope > 0 else "改善"
+fig, ax = plt.subplots(figsize=(9.6, 4.8))
+ax.plot(daily.index, daily.values, "o", ms=3.5, mfc=CONTEXT_GRAY, mec="none",
+        zorder=3, label="全岛日均 1 小时 PM2.5")
+ax.plot(daily.index, daily.values, lw=1.0, color=CONTEXT_GRAY, zorder=2)
+roll = daily.rolling(7, center=True).mean()
+ax.plot(roll.index, roll.values, lw=2.6, color=INK, zorder=4, label="7 天滚动均值")
+xs = np.arange(len(daily))
+ax.plot(daily.index, intercept + slope * xs, lw=1.8, ls="--", color="#2a78d6",
+        zorder=5, label="OLS 趋势线")
+ymax = max(daily.max(), 60) * 1.28
+ax.set_ylim(0, ymax)
 ax.axhline(55, color=BASE, lw=1.0, zorder=2)
-ax.text(piv.index[-1], 55, "  Band 1/2 boundary (55 µg/m³)", ha="left", va="center",
+ax.text(daily.index[-1], 55, " Band 1/2 分界（55 µg/m³）", ha="right", va="bottom",
         fontsize=7.5, color=MUTED)
-# End labels: direct where the line separates, leader lines for the converged
-# cluster at the right edge (22/22/21/18 all end within 4 µg/m³ of each other).
-end_vals = sorted(((piv[r].iloc[-1], r) for r in REGION_ORDER), reverse=True)
-stacked, direct = [], []
-prev = None
-for v, r in end_vals:
-    if prev is not None and prev - v <= 8:
-        stacked.append((v, r))
-    else:
-        direct.append((v, r))
-    prev = v
-for v, r in direct:
-    ax.text(piv.index[-1], v, f" {v:g}", ha="left", va="center", fontsize=8, color=INK)
-y_fracs = np.linspace(0.035, 0.26, len(stacked))[::-1]
-for (v, r), y_frac in zip(stacked, y_fracs):
-    ax.annotate(f"{v:g}", xy=(piv.index[-1], v), xycoords="data",
-                xytext=(1.012, y_frac), textcoords="axes fraction",
-                ha="left", va="center", fontsize=8, color=INK,
-                arrowprops=dict(arrowstyle="-", color=MUTED, lw=0.8))
-ax.annotate("central 101 → the only Band 2 reading on file",
-            xy=(pd.Timestamp("2026-09-17 19:00"), 101),
-            xytext=(pd.Timestamp("2026-09-17 17:55"), 106.5),
-            fontsize=8, color=INK2, arrowprops=dict(arrowstyle="->", color=MUTED, lw=1.0))
-ax.set_ylim(0, 120)
-ax.set_ylabel("1-hr PM2.5 (µg/m³)", fontsize=9)
-ax.xaxis.set_major_formatter(matplotlib.dates.DateFormatter("%H:%M\n%d %b"))
+ax.annotate(f"整体趋势 {slope:+.2f} µg/m³/天 · R² {r2:.2f}\n90 天内在持续{word}",
+            xy=(daily.index[int(len(daily) * 0.62)], intercept + slope * int(len(daily) * 0.62)),
+            xytext=(daily.index[int(len(daily) * 0.05)], ymax * 0.80),
+            fontsize=9.5, color=INK, fontweight="bold",
+            arrowprops=dict(arrowstyle="->", color=MUTED, lw=1.1))
+ax.set_ylabel("1 小时 PM2.5（µg/m³）", fontsize=9)
+ax.xaxis.set_major_locator(mdates.DayLocator(interval=7))
+ax.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d"))
 bare_ax(ax)
-ax.legend(frameon=False, fontsize=8.5, loc="upper center", bbox_to_anchor=(0.5, -0.07),
-          ncol=5, handlelength=1.4, labelcolor=INK)
-header(fig,
-       "Central spiked into Band 2 on the evening of 17 Sep; three hours went unrecorded",
-       "Only 4 hourly snapshots exist across 2 days — the 24-h trend chart depends on someone running the app",
-       "analysis/data/history_pm25_raw.csv")
-save(fig, "fig02_history_timeline.png")
+legend_out(ax, ncol=3)
+header(fig, f"全岛空气整体在{word}——90 天日均趋势",
+       f"{WINDOW} · 日均值（灰点）+ 7 天滚动（粗线）+ 最小二乘趋势线（虚线）",
+       "analysis/data/pm25_90d.csv")
+save(fig, "fig01_island_trend.png")
 
 # ---------------------------------------------------------------------------
-# fig03 — the worst region is not the same region
+# fig02 — diurnal pattern: best / worst time of day
 # ---------------------------------------------------------------------------
-evening = piv.loc[pd.Timestamp("2026-09-17 19:00")]
-live_pm = pd.read_csv(DATA / "live_pm25.csv").set_index("region")["pm25_1h"]
-
-fig, ax = plt.subplots(figsize=(8.2, 4.6))
-x = np.arange(2)
-w = 0.14
-for i, region in enumerate(REGION_ORDER):
-    vals = [evening[region], live_pm[region]]
-    bars = ax.bar(x + (i - 2) * (w + 0.02), vals, width=w, color=REGION_COLORS[region],
-                  label=region)
-    for b in bars:
-        ax.annotate(f"{b.get_height():g}", (b.get_x() + b.get_width() / 2, b.get_height() + 2),
-                    ha="center", fontsize=7.5, color=INK)
-ax.axhline(55, color=BASE, lw=1.0)
-ax.text(1.42, 55, " Band 1/2 boundary", ha="left", va="center", fontsize=7.5, color=MUTED)
-ax.set_xticks(x, ["17 Sep, 19:00\n(hazy evening)", "24 Sep, 11:45\n(clear midday)"])
-ax.set_xlim(-0.45, 1.55)
-ax.set_ylim(0, 118)
-ax.set_ylabel("1-hr PM2.5 (µg/m³)", fontsize=9)
+by_hour_region = pm.groupby(pm.index.hour).mean()
+by_hour_island = by_hour_region.mean(axis=1)
+fig, ax = plt.subplots(figsize=(9.6, 4.8))
+for region in REGION_ORDER:
+    ax.plot(by_hour_region.index, by_hour_region[region], lw=1.4,
+            color=REGION_COLORS[region], alpha=0.7, label=REGION_ZH[region])
+ax.plot(by_hour_island.index, by_hour_island.values, lw=3.0, color=INK,
+        zorder=6, label="全岛平均")
+peak_h = int(by_hour_island.idxmax())
+valley_h = int(by_hour_island.idxmin())
+ax.axhline(55, color=BASE, lw=1.0, zorder=2)
+ax.text(23, 55, " Band 1/2 分界", ha="right", va="bottom", fontsize=7.5, color=MUTED)
+ax.annotate(f"最差时段 {peak_h}:00 前后\n（平均 {by_hour_island[peak_h]:.0f} µg/m³）",
+            xy=(peak_h, by_hour_island[peak_h]), xytext=(peak_h - 9.5, by_hour_island[peak_h] + 3.5),
+            fontsize=8.5, color=INK2, arrowprops=dict(arrowstyle="->", color=MUTED, lw=1.0))
+ax.annotate(f"最好时段 {valley_h}:00 前后\n（平均 {by_hour_island[valley_h]:.0f} µg/m³）",
+            xy=(valley_h, by_hour_island[valley_h]), xytext=(valley_h + 0.8, by_hour_island[valley_h] + 9),
+            fontsize=8.5, color=INK2, arrowprops=dict(arrowstyle="->", color=MUTED, lw=1.0))
+ax.set_xlim(0, 23)
+ax.set_ylim(0, by_hour_island.max() * 1.32)
+ax.set_xticks([0, 3, 6, 9, 12, 15, 18, 21, 23])
+ax.set_xlabel("时刻（新加坡时间）", fontsize=9)
+ax.set_ylabel("1 小时 PM2.5（µg/m³）", fontsize=9)
 bare_ax(ax)
-ax.legend(frameon=False, fontsize=8.5, ncol=5, loc="upper right", bbox_to_anchor=(1.0, 1.02),
-          handlelength=1.2, labelcolor=INK, columnspacing=0.9)
-ax.annotate("central: highest (101) → lowest (13)\nranking flips between days",
-            xy=(0.32, 101), xytext=(0.62, 92), fontsize=8, color=INK2,
-            arrowprops=dict(arrowstyle="->", color=MUTED, lw=1.0))
-header(fig,
-       "The worst region flips between days",
-       "Per-region advice is the whole point of the dashboard — no region is consistently worst",
-       "analysis/data/history_pm25_raw.csv · analysis/data/live_pm25.csv (24 Sep 2026)")
+legend_out(ax, ncol=6, loc="upper center", bbox_to_anchor=(0.5, 1.14))
+fig.subplots_adjust(top=0.80)
+header(fig, "一天之中，空气最好和最差的时段是固定的",
+       "90 天按小时平均——各区域（彩色细线）与全岛平均（黑色粗线）的日变化规律",
+       "analysis/data/pm25_90d.csv")
+save(fig, "fig02_diurnal_pattern.png")
+
+# ---------------------------------------------------------------------------
+# fig03 — regional ranking: 90-day mean + share of hours above 55
+# ---------------------------------------------------------------------------
+mean_by_region = pm.mean()
+pct_by_region = (pm > 55).mean() * 100
+order = list(mean_by_region.sort_values(ascending=False).index)
+
+
+def pct_color(p: float) -> str:
+    if p <= 10:
+        return BAND_COLORS[1]
+    if p <= 30:
+        return BAND_COLORS[2]
+    if p <= 50:
+        return BAND_COLORS[3]
+    return BAND_COLORS[4]
+
+
+fig, axes = plt.subplots(1, 2, figsize=(10.4, 4.4))
+y = np.arange(len(order))[::-1]
+
+ax = axes[0]
+bars = ax.barh(y, [mean_by_region[r] for r in order], height=0.55,
+               color=[BAND_COLORS[band_of(mean_by_region[r])] for r in order])
+for b in bars:
+    ax.annotate(f"{b.get_width():.1f}", (b.get_width() + 1.2, b.get_y() + b.get_height() / 2),
+                va="center", fontsize=8.5, color=INK)
+ax.axvline(55, color=BASE, lw=1.0)
+ax.text(55, len(order) - 0.15, " 55（Band 1/2 分界）", ha="left", va="top", fontsize=7.5, color=MUTED)
+ax.set_yticks(y, [REGION_ZH[r] for r in order])
+ax.set_xlim(0, max(mean_by_region.max() * 1.22, 70))
+ax.set_title("90 天平均 1 小时 PM2.5\n（柱色 = 平均所处的 NEA 波段）", fontsize=9, color=INK2, pad=10)
+ax.set_xlabel("µg/m³", fontsize=8.5)
+bare_ax(ax)
+
+ax = axes[1]
+bars = ax.barh(y, [pct_by_region[r] for r in order], height=0.55,
+               color=[pct_color(pct_by_region[r]) for r in order])
+for b in bars:
+    ax.annotate(f"{b.get_width():.0f}%", (b.get_width() + 1.2, b.get_y() + b.get_height() / 2),
+                va="center", fontsize=8.5, color=INK)
+ax.set_yticks(y, [REGION_ZH[r] for r in order])
+ax.set_xlim(0, 100)
+ax.set_xticks([0, 25, 50, 75, 100])
+ax.set_title("超标（>55 µg/m³）时间占比\n（柱色 = 占比严重程度）", fontsize=9, color=INK2, pad=10)
+ax.set_xlabel("%", fontsize=8.5)
+bare_ax(ax)
+
+header(fig, "哪个区域长期最容易出问题——中部、北部最严重",
+       "90 天全部小时值：平均浓度与超标时间占比的排序一致，结论互相印证",
+       "analysis/data/pm25_90d.csv")
 save(fig, "fig03_region_ranking.png")
 
 # ---------------------------------------------------------------------------
-# fig04 — 1-hr PM2.5 and 24-hr PSI tell different stories
+# fig04 — episode days: band-hours per day (120 region-hours/day)
 # ---------------------------------------------------------------------------
-live_psi = pd.read_csv(DATA / "live_psi.csv").set_index("region")
+band_df = pm.map(band_of)
+flat = band_df.stack().rename("band").reset_index()
+flat["timestamp"] = flat["timestamp"].dt.normalize()
+daily_band = flat.groupby(["timestamp", "band"]).size().unstack(fill_value=0)
+daily_band = daily_band.reindex(columns=[1, 2, 3, 4], fill_value=0)
+daily_band.index = daily_band.index.tz_localize(None)
+share = daily_band.div(daily_band.sum(axis=1), axis=0) * 100
+elevated = share[[2, 3, 4]].sum(axis=1)
 
-fig, axes = plt.subplots(1, 2, figsize=(9.2, 4.2))
-panels = [
-    (axes[0], live_pm, "1-hr PM2.5 (µg/m³)", "all Band 1 — Normal", "immediate-action metric", "east highest (24)"),
-    (axes[1], live_psi["psi_24h"], "24-hr PSI", "all Tier 2 — Moderate", "work-planning metric", "west highest (82)"),
-]
-for ax, series, ylab, tag, role, note in panels:
-    bars = ax.bar(REGION_ORDER, [series[r] for r in REGION_ORDER], width=0.55,
-                  color=[REGION_COLORS[r] for r in REGION_ORDER])
-    for b in bars:
-        ax.annotate(f"{b.get_height():g}", (b.get_x() + b.get_width() / 2, b.get_height() + 1.2),
-                    ha="center", fontsize=8, color=INK)
-    ax.set_ylim(0, 95)
-    ax.set_ylabel(ylab, fontsize=9)
-    ax.set_title(f"{tag} — {note}\n({role})", fontsize=9, color=INK2, loc="center", pad=8)
-    bare_ax(ax)
-fig.subplots_adjust(top=0.75)  # keep the two-line panel titles clear of the subtitle
-header(fig,
-       "Two metrics, two different regional pictures (live, 24 Sep 11:45)",
-       "1-hr PM2.5 says Normal everywhere while 24-hr PSI says Moderate — and they disagree on which region is worst",
-       "analysis/data/live_pm25.csv · analysis/data/live_psi.csv")
-save(fig, "fig04_metric_divergence.png")
-
-# ---------------------------------------------------------------------------
-# fig05 — demo scenarios: central dominates; peak at 15:00; Band 4 unreached
-# ---------------------------------------------------------------------------
-demo = pd.read_csv(DATA / "demo_pm25_24h.csv", parse_dates=["timestamp"])
-demo["hour"] = demo["timestamp"].dt.hour
-SCEN_TITLES = {
-    "clear_day": "clear_day — all Band 1, peak 15:00 (synthetic diurnal sine)",
-    "moderate_haze": "moderate_haze — all Band 2 for the full 24 h",
-    "haze_episode": "haze_episode — central tops at 244.8; Band 4 (≥251) never reached",
-}
-fig, axes = plt.subplots(1, 3, figsize=(12.6, 4.3), sharey=False)
-for ax, (scen, sub) in zip(axes, SCEN_TITLES.items()):
-    d = demo[demo.scenario == scen]
-    for region in ["south", "east", "west"]:
-        s = d[d.region == region].sort_values("hour")
-        ax.plot(s.hour, s.pm25, lw=1.4, color=CONTEXT_GRAY, zorder=2)
-    for region in ["north", "central"]:
-        s = d[d.region == region].sort_values("hour")
-        lw = 2.8 if region == "central" else 1.8
-        ax.plot(s.hour, s.pm25, lw=lw, color=REGION_COLORS[region], zorder=4)
-    end_central = d[(d.region == "central") & (d.hour == 11)].pm25.iloc[0]
-    ax.plot(11, end_central, "o", ms=6, mfc=REGION_COLORS["central"], mec=SURFACE, mew=2, zorder=5)
-    ax.text(11, end_central, f"  central {end_central:g}", ha="left", va="center",
-            fontsize=8, color=INK)
-    ymax = d.pm25.max()
-    for edge, lab in zip([55, 150, 251], ["Band 1/2 · 55", "Band 2/3 · 150", "Band 3/4 · 251"]):
-        if edge < ymax * 1.18:
-            ax.axhline(edge, color=BASE, lw=1.0, zorder=2)
-            ax.text(0.3, edge, f"{lab}", ha="left", va="center", fontsize=6.8, color=MUTED)
-    ax.set_xlim(0, 24)
-    ax.set_ylim(0, ymax * 1.18)
-    ax.set_xticks([0, 6, 12, 15, 18, 23])
-    ax.set_xlabel("hour of day (SGT)", fontsize=8)
-    ax.set_title(sub, fontsize=8.6, color=INK2, pad=8)
-    bare_ax(ax)
-axes[0].set_ylabel("1-hr PM2.5 (µg/m³)", fontsize=9)
-axes[0].annotate("sine peak 15:00 — real Singapore haze\npeaks are typically evening/morning",
-                 xy=(15, 34.5), xytext=(14.9, 39.5), ha="center", fontsize=7.5, color=INK2,
-                 arrowprops=dict(arrowstyle="->", color=MUTED, lw=1.0))
-axes[1].annotate("central offset +18; north\n+4 — but risk score order\nstill differs (trend term)",
-                 xy=(11, 111.9), xytext=(0.3, 74), fontsize=7.5, color=INK2,
-                 arrowprops=dict(arrowstyle="->", color=MUTED, lw=1.0))
-fig.legend(
-    handles=[plt.Line2D([0], [0], color=REGION_COLORS["central"], lw=2.8),
-             plt.Line2D([0], [0], color=REGION_COLORS["north"], lw=1.8),
-             plt.Line2D([0], [0], color=CONTEXT_GRAY, lw=1.4)],
-    labels=["central", "north", "south / east / west"],
-    loc="upper right", bbox_to_anchor=(1.0, 0.995), frameon=False, fontsize=8.5,
-    handlelength=1.6, labelcolor=INK, ncol=3, columnspacing=1.2)
-header(fig,
-       "Demo scenarios: central always worst, and the worst case never reaches Band 4",
-       "Synthetic 24-h series (deterministic seeds). Central offset +8/+18/+38 µg/m³; band thresholds as lines",
-       "analysis/data/demo_pm25_24h.csv")
-save(fig, "fig05_demo_scenarios.png")
-
-# ---------------------------------------------------------------------------
-# fig06 — band-hours share per scenario (status colors, labelled)
-# ---------------------------------------------------------------------------
-rows = []
-for scen, g in demo.groupby("scenario"):
-    for band, _, _ in BANDS:
-        n = sum(band_of(v) == band for v in g.pm25)
-        rows.append({"scenario": scen, "band": band, "hours": n})
-share = pd.DataFrame(rows).pivot(index="scenario", columns="band", values="hours")
-share = share.div(share.sum(axis=1), axis=0) * 100
-
-fig, ax = plt.subplots(figsize=(8.2, 3.9))
-scen_order = list(SCEN_TITLES)
-y = np.arange(len(scen_order))[::-1]
-left = np.zeros(len(scen_order))
+fig, ax = plt.subplots(figsize=(10.4, 4.8))
+left = np.zeros(len(share))
 for band, name, color in BANDS:
-    vals = [share.loc[s, band] if band in share.columns else 0 for s in scen_order]
-    bars = ax.barh(y, vals, left=left, height=0.5, color=color, edgecolor=SURFACE,
-                   linewidth=2, label=name)
-    for i, (b, v) in enumerate(zip(bars, vals)):
-        if v > 0:
-            # Ink or surface text by fill luminance (white on green/red, ink on
-            # yellow/serious where white would be <3:1).
-            txt_color = SURFACE if band in (1, 4) else INK
-            if v >= 9:
-                ax.text(left[i] + v / 2, y[i], f"{v:.0f}%", ha="center", va="center",
-                        fontsize=8, color=txt_color, fontweight="bold")
-            else:
-                ax.text(left[i] + v + 1.2, y[i], f"{v:.0f}%", ha="left", va="center",
-                        fontsize=8, color=INK)
+    vals = share[band].values
+    ax.bar(share.index, vals, bottom=left, width=0.9, color=color,
+           edgecolor=SURFACE, linewidth=1.5, label=name)
     left += vals
-ax.set_yticks(y, scen_order)
-ax.set_xlim(0, 112)
-ax.set_xticks([0, 25, 50, 75, 100], ["0", "25%", "50%", "75%", "100%"])
-ax.set_xlabel("share of 120 region-hours per scenario", fontsize=9)
+worst_day = elevated.idxmax()
+for d in share.index[elevated > 20]:
+    ax.annotate(f"{d:%m-%d}\n{elevated[d]:.0f}% 超标", xy=(d, 103),
+                xytext=(d, 116), ha="center", fontsize=7.8, color=INK2,
+                arrowprops=dict(arrowstyle="->", color=MUTED, lw=0.8))
+ax.set_ylim(0, 128)
+ax.set_yticks([0, 25, 50, 75, 100], ["0", "25%", "50%", "75%", "100%"])
+ax.xaxis.set_major_locator(mdates.DayLocator(interval=7))
+ax.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d"))
+ax.set_ylabel("120 个区域小时的波段占比\n（5 区域 × 24 小时/天）", fontsize=9)
 bare_ax(ax)
-ax.legend(frameon=False, fontsize=8.5, loc="lower right", labelcolor=INK, handlelength=1.4)
-ax.annotate("no Band 4 (≥251) in any demo scenario —\nthe app's most severe state is never exercised",
-            xy=(102, 2.2), xytext=(66, 1.62), fontsize=8, color=INK2,
-            arrowprops=dict(arrowstyle="->", color=MUTED, lw=1.0))
-header(fig,
-       "Band coverage of the demo scenarios",
-       "3 scenarios × 5 regions × 24 h = 120 region-hours each; status colors follow the NEA band scale",
-       "analysis/data/demo_pm25_24h.csv")
-save(fig, "fig06_demo_band_hours.png")
+legend_out(ax, ncol=4)
+header(fig, f"污染集中在少数几天——最严重的是 {worst_day:%m-%d}（{elevated[worst_day]:.0f}% 区域小时超标）",
+       "每天 120 个区域小时按 NEA 波段的占比；标注的是超标占比 >20% 的日子",
+       "analysis/data/pm25_90d.csv")
+save(fig, "fig04_episode_days.png")
 
 # ---------------------------------------------------------------------------
-# fig07 — 3-h trend slope: step index vs real hour spacing
+# fig05 — heatmap: hour × day, island-average PM2.5
 # ---------------------------------------------------------------------------
-# The last 3 central readings the engine would actually see (all within the
-# 48-h prune window): 19:00, 23:00, 00:00 — with a real 4-hour gap inside.
-central = raw[raw.region == "central"].drop_duplicates(subset=["ts"], keep="last").sort_values("ts")
-last3 = central.iloc[-4:-1]  # 19:00, 23:00, 00:00 — the last 3 pre-overnight points
-y = last3.pm25.values
-gaps = ((last3.ts - last3.ts.iloc[0]).dt.total_seconds() / 3600).values
-step = np.arange(3)
-step_slope = np.polyfit(step, y, 1)[0]
-hour_slope = np.polyfit(gaps, y, 1)[0]
-
-
-def trend_term(slope: float) -> float:
-    if slope >= 10:
-        return 1.0
-    if slope >= 5:
-        return 0.5
-    if slope <= -10:
-        return -1.0
-    if slope <= -5:
-        return -0.5
-    return 0.0
-
-
-fig, ax = plt.subplots(figsize=(8.2, 4.5))
-ax.plot(step, y, "o", ms=7, mfc=REGION_COLORS["central"], mec=SURFACE, mew=2, zorder=5)
-ax.plot(step, y, lw=1.5, color=REGION_COLORS["central"], alpha=0.5, zorder=3)
-for i, (s, v) in enumerate(zip(step, y)):
-    dy = 6 if v > 55 else -7  # label above the point, except under the Band line
-    ax.text(s, v + dy, f"{v:g}", ha="center", va="bottom" if dy > 0 else "top",
-            fontsize=8, color=INK)
-    gap_lab = f"Δt {gaps[i]:g} h" if gaps[i] > 0 else "start of window"
-    ax.text(s, 8, gap_lab, ha="center", fontsize=7.5, color=MUTED)
-ax.set_xticks(step, [t.strftime("%H:%M") for t in last3.ts])
-ax.set_xlim(-0.45, 2.45)
-ax.set_ylim(0, 125)
-ax.set_ylabel("central 1-hr PM2.5 (µg/m³)", fontsize=9)
-ax.axhline(55, color=BASE, lw=1.0)
-ax.text(2.45, 55, " Band 1/2", ha="right", va="center", fontsize=7.5, color=MUTED)
-bare_ax(ax)
-ax.annotate(
-    f"engine: slope over steps 0,1,2 = {step_slope:.1f} µg/m³/h → trend term {trend_term(step_slope):+.1f}\n"
-    f"reality: slope over 0 h, {gaps[1]:g} h, {gaps[2]:g} h = {hour_slope:.1f} µg/m³/h → trend term {trend_term(hour_slope):+.1f}\n"
-    "same term today, 2.6× overstated — larger gaps can flip the term (see findings)",
-    xy=(1, 53), xytext=(0.55, 103), fontsize=8.5, color=INK2,
-    arrowprops=dict(arrowstyle="->", color=MUTED, lw=1.0))
-header(fig,
-       "The 3-h trend slope assumes 1-hour spacing the data does not have",
-       "trend_slope() indexes the last 3 readings 0,1,2 — the real 4-hour gap is counted as one hour (2.6× overstated)",
-       "analysis/data/history_pm25_raw.csv · src/risk/bands.py")
-save(fig, "fig07_trend_spacing.png")
+hm = pd.DataFrame({"hour": island.index.hour, "date": island.index.normalize(), "v": island.values})
+hm = hm.pivot_table(index="hour", columns="date", values="v", aggfunc="mean")
+hm.index = hm.index.astype(int)
+fig, ax = plt.subplots(figsize=(10.4, 5.0))
+dates = list(hm.columns)
+im = ax.pcolormesh(np.arange(len(dates) + 1), np.arange(25) - 0.5, hm.values,
+                   cmap=HAZE_CMAP, vmin=0, vmax=max(60.0, float(hm.max().max()) * 0.75))
+cb = fig.colorbar(im, ax=ax, pad=0.015)
+cb.set_label("全岛平均 1 小时 PM2.5（µg/m³）", fontsize=8.5)
+cb.outline.set_color(BASE)
+cb.ax.tick_params(length=0, colors=MUTED, labelsize=8)
+ax.set_yticks([0, 6, 12, 18, 23])
+ax.set_ylabel("时刻（新加坡时间）", fontsize=9)
+step = 7
+ax.set_xticks(np.arange(0, len(dates), step), [d.strftime("%m-%d") for d in dates[::step]])
+ax.set_xlim(0, len(dates))
+ax.set_ylim(-0.5, 23.5)
+for spine in ax.spines.values():
+    spine.set_visible(False)
+ax.tick_params(length=0)
+header(fig, f"污染在一天里如何演变——午后（{peak_h}:00 前后）最重，清晨最轻",
+       "行 = 时刻（0–23 点），列 = 日期；颜色 = 全岛平均 1 小时 PM2.5",
+       "analysis/data/pm25_90d.csv")
+save(fig, "fig05_heatmap.png")
 
 # ---------------------------------------------------------------------------
-# fig08 — transport risk: 796 Kalimantan fires, sumatra dominates upwind
+# fig06 — instant metric vs planning metric: PSI lags PM2.5
 # ---------------------------------------------------------------------------
-hs = pd.read_csv(DATA / "live_hotspots.csv").set_index("source")
-pts = pd.read_csv(DATA / "live_hotspot_points.csv")
+# Cross-correlation on the full series, diurnal removed, to measure the lag.
+pm_resid = island - island.groupby(island.index.hour).transform("mean")
+psi_resid = island_psi - island_psi.groupby(island_psi.index.hour).transform("mean")
+corr = np.correlate(pm_resid.values, psi_resid.values, mode="full")
+# np.correlate peak at k<0 means psi(t) ~ pm(t-|k|): PSI trails PM2.5 by |k|.
+psi_lag = -int(corr.argmax() - (len(pm_resid) - 1))
 
-fig, axes = plt.subplots(1, 2, figsize=(11.2, 4.6), gridspec_kw={"width_ratios": [1, 1.35]})
+center = island.resample("D").mean().idxmax()  # tz-aware
+lo, hi = center - pd.Timedelta(days=3), center + pd.Timedelta(days=1)
+pm_w = island[(island.index >= lo) & (island.index <= hi)]
+pm_w.index = pm_w.index.tz_localize(None)
+psi_w = island_psi[(island_psi.index >= lo) & (island_psi.index <= hi)]
+psi_w.index = psi_w.index.tz_localize(None)
 
-ax = axes[0]
-sources = ["kalimantan", "sumatra", "p_malaysia"]
-bars = ax.bar(sources, [hs.loc[s, "count"] for s in sources], width=0.5,
-              color=[SOURCE_COLORS[s] for s in sources])
-for b in bars:
-    ax.annotate(f"{b.get_height():g}", (b.get_x() + b.get_width() / 2, b.get_height() + 18),
-                ha="center", fontsize=8, color=INK)
-ax.set_ylim(0, 880)
-ax.set_ylabel("hotspots in latest NOAA-20 pass (23 Sep 16:23)", fontsize=8.5)
-ax.text(2, 28, "0", ha="center", fontsize=8, color=INK)
+fig, ax1 = plt.subplots(figsize=(9.6, 4.6))
+ax1.plot(pm_w.index, pm_w.values, lw=2.2, color=INK, zorder=5, label="1 小时 PM2.5（即时指标）")
+ax1.axhline(55, color=BASE, lw=1.0, zorder=2)
+ax1.text(pm_w.index[0], 55, " Band 1/2 分界", ha="left", va="bottom", fontsize=7.5, color=MUTED)
+ax1.set_ylim(0, pm_w.max() * 1.32)
+ax1.set_ylabel("1 小时 PM2.5（µg/m³）", fontsize=9)
+ax2 = ax1.twinx()
+ax2.plot(psi_w.index, psi_w.values, lw=2.2, color="#2a78d6", zorder=4,
+         label="24 小时 PSI（规划指标）")
+ax2.set_ylim(0, psi_w.max() * 1.5)
+ax2.set_ylabel("24 小时 PSI", fontsize=9, color="#2a78d6")
+ax2.tick_params(axis="y", colors="#2a78d6", length=0)
+ax2.spines["top"].set_visible(False)
+ax2.spines["right"].set_color("#2a78d6")
+ax2.grid(visible=False)
+pm_peak_t = pm_w.idxmax()
+psi_peak_t = psi_w.idxmax()
+ax1.annotate("PM2.5 先冲顶\n（即时指标先报警）", xy=(pm_peak_t, pm_w.max()),
+             xytext=(pm_peak_t - pd.Timedelta(hours=30), pm_w.max() * 1.02),
+             fontsize=8.5, color=INK2, arrowprops=dict(arrowstyle="->", color=MUTED, lw=1.0))
+ax1.annotate(f"PSI 随后才到峰值\n（整体滞后约 {psi_lag} 小时）", xy=(psi_peak_t, psi_w.max()),
+             xytext=(psi_peak_t + pd.Timedelta(hours=6), psi_w.max() * 0.72),
+             fontsize=8.5, color="#2a78d6", arrowprops=dict(arrowstyle="->", color=MUTED, lw=1.0))
+ax1.xaxis.set_major_locator(mdates.HourLocator(interval=12))
+ax1.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d %H:%M"))
+bare_ax(ax1)
+handles = [plt.Line2D([0], [0], color=INK, lw=2.2),
+           plt.Line2D([0], [0], color="#2a78d6", lw=2.2)]
+ax1.legend(handles, ["1 小时 PM2.5（即时指标）", "24 小时 PSI（规划指标）"],
+           frameon=False, fontsize=8.5, loc="upper left", labelcolor=INK, handlelength=1.6)
+header(fig, f"PSI 是 24 小时滚动平均——它比 PM2.5 晚约 {psi_lag} 小时反应",
+       f"最严重的 4 天（{lo:%m-%d} – {hi:%m-%d}）：现场变化先看 1 小时 PM2.5，工作安排看 24 小时 PSI",
+       "analysis/data/pm25_90d.csv · analysis/data/psi_90d.csv")
+save(fig, "fig06_psi_lag.png")
+
+# ---------------------------------------------------------------------------
+# fig07 — per-region daily trends: who is worsening fastest
+# ---------------------------------------------------------------------------
+fig, axes = plt.subplots(1, 5, figsize=(13.8, 4.0), sharey=True)
+for ax, region in zip(axes, REGION_ORDER):
+    d = region_daily[region].dropna()
+    slope_r, intercept_r, r2_r = _ols(d)
+    xs = np.arange(len(d))
+    ax.plot(xs, d.values, "o", ms=2.5, mfc=CONTEXT_GRAY, mec="none", zorder=3)
+    ax.plot(xs, d.values, lw=0.8, color=CONTEXT_GRAY, zorder=2)
+    ax.plot(xs, intercept_r + slope_r * xs, lw=2.0, ls="--",
+            color=REGION_COLORS[region], zorder=5)
+    ax.axhline(55, color=BASE, lw=0.9, zorder=2)
+    ax.text(0.04, 0.88, f"{slope_r:+.2f} µg/m³/天\nR² {r2_r:.2f}",
+            transform=ax.transAxes, fontsize=8.5, color=INK, fontweight="bold")
+    ax.set_title(f"{REGION_ZH[region]}", fontsize=10.5)
+    ax.set_xticks([0, len(d) // 2, len(d) - 1],
+                  [d.index[0].strftime("%m-%d"), d.index[len(d) // 2].strftime("%m-%d"),
+                   d.index[-1].strftime("%m-%d")])
+    bare_ax(ax)
+axes[0].set_ylabel("日均 1 小时 PM2.5（µg/m³）", fontsize=9)
+axes[0].set_ylim(0, region_daily.max().max() * 1.28)
+header(fig, "哪个区域恶化最快——斜率最大的是中部与北部",
+       "各区域日均值（灰点）+ 最小二乘趋势线（彩色虚线）；斜率 = 每区域每天的变化量",
+       "analysis/data/pm25_90d.csv")
+save(fig, "fig07_region_trends.png")
+
+# ---------------------------------------------------------------------------
+# fig08 — distribution: mean vs spikes (tail risk)
+# ---------------------------------------------------------------------------
+fig, ax = plt.subplots(figsize=(8.4, 4.8))
+data = [pm[r].dropna().values for r in REGION_ORDER]
+bp = ax.boxplot(data, tick_labels=[REGION_ZH[r] for r in REGION_ORDER],
+                patch_artist=True, widths=0.5, medianprops=dict(color=INK, lw=2.2),
+                flierprops=dict(marker=".", ms=2.2, mfc=CONTEXT_GRAY, mec="none", alpha=0.5))
+for patch, region in zip(bp["boxes"], REGION_ORDER):
+    patch.set_facecolor(REGION_COLORS[region])
+    patch.set_alpha(0.55)
+means = [pm[r].mean() for r in REGION_ORDER]
+ax.scatter(np.arange(1, 6), means, marker="x", s=55, color=INK, zorder=6, label="90 天均值")
+for edge, lab in zip(BAND_EDGES, ["Band 1/2 · 55", "Band 2/3 · 150", "Band 3/4 · 251"]):
+    ax.axhline(edge, color=BASE, lw=1.0, zorder=2)
+    ax.text(5.42, edge, f" {lab}", ha="left", va="center", fontsize=7.2, color=MUTED)
+ax.set_ylim(0, 320)
+ax.set_ylabel("1 小时 PM2.5（µg/m³）", fontsize=9)
+ax.set_xlabel("区域（箱线 = 90 天全部小时值；× = 均值）", fontsize=9)
 bare_ax(ax)
-ax.annotate("transport engine: level 3 (+1.5 risk score)\nupwind points 71 · dominant source: sumatra",
-            xy=(1, 55), xytext=(0.95, 560), fontsize=8.5, color=INK2,
-            arrowprops=dict(arrowstyle="->", color=MUTED, lw=1.0))
+legend_out(ax, ncol=1)
+header(fig, "平均值之外的尖峰风险——中部不仅平均高，尖峰也最高",
+       "箱体 = 中间 50% 的小时值；须线 = 常见波动范围；灰点 = 异常高的小时值",
+       "analysis/data/pm25_90d.csv")
+save(fig, "fig08_distribution.png")
 
-ax = axes[1]
-for source in ["kalimantan", "sumatra"]:
-    p = pts[pts.source == source]
-    ax.scatter(p.lon, p.lat, s=3, alpha=0.45, color=SOURCE_COLORS[source], label=source,
-               linewidths=0)
-ax.plot(103.82, 1.35, "o", ms=8, mfc=INK, mec=SURFACE, mew=2, zorder=6)
-ax.text(103.82, 0.0, "Singapore", ha="center", va="center", fontsize=8.5, color=INK)
-for bearing, lab in [(154, "wind from S–SE"), (223, "wind from S–SW")]:
-    rad = np.radians(bearing)
-    ax.annotate("", xy=(103.82 + 7.2 * np.sin(rad), 1.35 + 7.2 * np.cos(rad)),
-                xytext=(103.82, 1.35),
-                arrowprops=dict(arrowstyle="->", color=MUTED, lw=1.2))
-    ax.text(103.82 + 7.9 * np.sin(rad), 1.35 + 7.9 * np.cos(rad), lab,
-            fontsize=7.2, color=MUTED, ha="center")
-ax.set_xlabel("longitude", fontsize=8.5)
-ax.set_ylabel("latitude", fontsize=8.5)
-ax.legend(frameon=False, fontsize=8.5, loc="lower left", labelcolor=INK,
-          markerscale=4, handlelength=0.8)
-bare_ax(ax)
-
-header(fig,
-       "796 fires in Kalimantan — but the engine's upwind story is sumatra",
-       "Live, 24 Sep: transport risk level 3 adds +1.5 to every region's score, lifting all five from Band 1 to risk level 2",
-       "analysis/data/live_hotspots.csv · live_hotspot_points.csv · live_transport.csv")
-save(fig, "fig08_transport_dominance.png")
-
+# ---------------------------------------------------------------------------
+# Key numbers for findings.md
+# ---------------------------------------------------------------------------
 print("\nkey numbers:")
-print("  raw rows:", len(raw), "| unique pairs:", raw.groupby(["ts", "region"]).ngroups)
-print("  step slope:", round(step_slope, 2), "| hour slope:", round(hour_slope, 2))
-print("  band-hours:", share.to_dict())
+print(f"  island: slope {slope:+.2f} µg/m³/day, R² {r2:.2f}, window {WINDOW}")
+for r in sorted(REGION_ORDER, key=lambda r: -mean_by_region[r]):
+    sr, _, rr = _ols(region_daily[r].dropna())
+    print(f"  {r:8s} mean {mean_by_region[r]:5.1f} · >55 {pct_by_region[r]:4.1f}% · "
+          f"slope {sr:+.2f}/day · R² {rr:.2f}")
+print(f"  diurnal: peak {peak_h}:00 ({by_hour_island[peak_h]:.1f}), valley {valley_h}:00 "
+      f"({by_hour_island[valley_h]:.1f})")
+print(f"  worst day: {worst_day:%Y-%m-%d} ({elevated[worst_day]:.0f}% region-hours >55)")
+print(f"  top-3 episode days: " + ", ".join(
+    f"{d:%m-%d}={elevated[d]:.0f}%" for d in elevated.sort_values(ascending=False).index[:3]))
+print(f"  PSI lags PM2.5 by ~{psi_lag} h (diurnal-removed cross-correlation)")
+print(f"  spike: {region_daily.max().max():.1f} peak daily mean; "
+      f"central max hourly = {pm['central'].max():.1f}")

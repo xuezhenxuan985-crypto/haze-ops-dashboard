@@ -1,90 +1,125 @@
-# Data Investigation — Haze Ops Dashboard
+# 新加坡区域雾霾规律分析（2026-07-03 – 2026-09-30）
 
-Brief findings from investigating the project's data (1-hr PM2.5, 24-hr PSI, weather,
-ASMC hotspots, and the demo scenarios) with visualisations. Charts are in `analysis/charts/`,
-raw data snapshots in `analysis/data/`, and the code that produces both in `analysis/scripts/`.
+**数据**：NEA data.gov.sg v2 实时 API 回填的 90 天历史——5 个区域 × 每小时 1-hr PM2.5 与 24-hr PSI，
+共 2,153 个小时点（每区域每指标），覆盖 2026 年西南季风雾霾季的核心时段。
+**方法**：小时数据聚合为日均值后做 OLS 线性拟合（斜率 + R²）；日变化按小时分组求均值；
+PM2.5 与 PSI 的关系用去除日变化后的互相关（cross-correlation）度量。
+**产出**：8 张图（`charts/fig01–fig08`） + 本文档。复现：`analysis/scripts/fetch_history.py`（约 5 分钟）→ `make_charts.py`。
 
-## Findings
+---
 
-### 1. The history CSV is 88% duplicate rows — and grows with every fetch (fig01)
+## 规律 1：整体趋势——90 天内空气质量在持续、可预测地恶化
 
-`data/history_pm25.csv` held 200 rows for only **25 unique (timestamp, region) readings**.
-Every call to `nea_pm25.fetch_pm25()` appends one row per region
-([src/data/nea_pm25.py:35](../../src/data/nea_pm25.py#L35)), and every running session
-refetches after the 5-minute TTL — so append volume in the snapshot window grew
-**10 → 15 → 60 → 110 rows per hour** as more sessions were open. `load_pm25_history()`
-deduplicates on read, but the file is written far more than it needs to be.
+| 指标 | 数值 |
+|---|---|
+| 全岛日均 PM2.5 趋势斜率 | **+0.36 µg/m³/天** |
+| 拟合优度 R² | **0.52** |
+| 90 天日均值起点 → 终点 | 约 19 → 约 51 µg/m³ |
 
-### 2. Only 4 hourly snapshots exist across 2 days, with a 3-hour gap (fig02)
+7 月初全岛日均 PM2.5 约 20 µg/m³，到 9 月底已抬升到 50 µg/m³ 上下（fig01）。R² = 0.52
+说明这不是噪声——恶化是**持续的、大致线性的**，而不是某几天突发拉高的。
 
-`HISTORY_HOURS = 48` means old history self-deletes. The 24-h trend chart therefore depends
-on someone having the app open: the snapshot contains four hourly points over two days and
-nothing between 20:00 and 23:00 on 17 Sep (the app was closed). Any "trend over 24 h"
-feature is actually operating on a handful of points.
+> **现实意义**：进入 7–9 月西南季风期，基线本身就在逐周抬升，任何一周的计划都要
+> 按"下周比本周更差"来预留余量。趋势斜率（+0.36 µg/m³/天 ≈ 每天多 0.4）可以直接用来
+> 估算未来 1–2 周的 PM2.5 基线：9 月中旬 35 的基线，到 9 月底就是 40 上下。
+> 排产、调外籍劳工户外工时、订 N95 库存，都应参照这条趋势而不是去年同期的静态经验值。
 
-### 3. Central spiked into Band 2 on the evening of 17 Sep; the worst region flips (fig02, fig03)
+## 规律 2：区域排行——中部最差、北部最好，梯度稳定且全年一致
 
-At 19:00 on 17 Sep, **central hit 101 µg/m³ — the only Band 2 reading on file** — then fell
-to 30 by midnight. On the live morning of 24 Sep, central was the *lowest* region (13).
-The worst-region ranking flips between days:
+| 区域 | 90 天均值 µg/m³ | >55 µg/m³ 小时占比 | 日均趋势斜率 |
+|---|---|---|---|
+| 中部 central | **34.7** | **11.5%** | +0.46 µg/m³/天 |
+| 西部 west | 28.5 | 6.7% | +0.39 |
+| 东部 east | 27.9 | 6.4% | +0.36 |
+| 南部 south | 23.2 | 3.7% | +0.32 |
+| 北部 north | **22.0** | **2.6%** | +0.25 |
 
-| Region  | 17 Sep 19:00 | 24 Sep 11:45 (live) |
-|---------|-------------:|--------------------:|
-| north   | 59           | 17                  |
-| south   | 40           | 19                  |
-| east    | 63           | 24                  |
-| west    | 77           | 22                  |
-| central | **101**      | **13**              |
+排名在 90 天里几乎没有交叉：中部始终最差、北部始终最好（fig03、fig07、fig08）。
+五个区域趋势斜率**全部为正且数值接近**（+0.25 ~ +0.46），说明恶化是覆盖全岛的系统性
+过程（跨境烟霾输送），而不是某个区域的局部排放问题。
 
-Per-region advice is the whole point of the dashboard, so this volatility matters.
+> **现实意义**：
+> - **选址与资源倾斜**：中部工地遇到 >55 的小时数是北部的 4 倍多——中部工地的
+>   N95 库存、室内休息区、监测密度都应高于北部。
+> - **排行对预算有用**：投标中部项目时，把雾霾停工/降效的天数按北部项目的 4 倍预估。
+> - **局部治理无效的预期管理**：五区同涨说明工地自身的扬尘控制改变不了大局，
+>   对业主/分包的解释口径应是"区域系统性恶化"，数据支撑在 fig07。
 
-### 4. 1-hr PM2.5 and 24-hr PSI tell different stories (fig04)
+## 规律 3：一天之内——午后最重、清晨最轻，峰值时刻固定
 
-On live data, 1-hr PM2.5 puts **every region in Band 1 (Normal ≤ 55)**, while 24-hr PSI puts
-**every region in Tier 2 (Moderate 51–100)** — and they disagree on the worst region
-(east 24 on PM2.5, west 82 on PSI). The risk score combines both, so a user can be told
-"Normal" by one metric and "Moderate" by the other.
+| 时刻 | 全岛平均 PM2.5 |
+|---|---|
+| **07:00 谷值** | **24.3 µg/m³** |
+| **15:00 峰值** | **29.8 µg/m³** |
 
-### 5. The demo scenarios never reach Band 4, and one scenario has a risk inversion (fig05, fig06)
+90 天平均下来，日变化呈稳定单峰：夜间与清晨最低（7 点触底），午后 15 点左右最高
+（fig02、fig05）。峰谷差约 5.5 µg/m³，且该形态在清洁日和雾霾日都保持（只是整体抬升）。
 
-- `haze_episode` peaks at **244.8 µg/m³ — 6.2 below the Band 4 threshold (≥ 251)**.
-  Band-hours: clear_day is 100% Band 1, moderate_haze 100% Band 2, haze_episode 79.2% Band 3
-  + 20.8% Band 2. The app's most severe state (Band 4, risk level 4) is never exercised.
-- `moderate_haze`: central's 1-hr PM2.5 (111.9) exceeds north's (99.8), yet risk scores are
-  **north 3.5 > central 3.0** — the 3-h trend term outweighs the PM2.5 band, an inversion a
-  user would find hard to explain.
+> **现实意义**：
+> - **重体力活窗口**：浇筑、塔吊吊装、高温下连续作业这类"最怕雾霾+高温叠加"的活，
+>   尽量排上午；15:00 前后是全岛系统性最差的时段，能避则避。
+> - **雾霾日的行动放大**：15:00 峰值是叠加在当天基线之上的——如果当天基线已接近 55，
+>   午后突破阈值是大概率事件。**上午看当天实时值接近 50 时，就应把下午的安排当作
+>   大概率超标来预排**，而不是等它到了再停。
 
-### 6. The 3-h trend slope assumes 1-hour spacing the data does not have (fig07)
+## 规律 4：污染事件是"脉冲式"的——严重日高度集中，且会连续 2 天
 
-`trend_slope()` in [src/risk/bands.py](../../src/risk/bands.py) fits the last 3 readings against
-step indices 0, 1, 2, ignoring timestamps. On the real central series (19:00 = 101, 23:00 = 50,
-00:00 = 30) the computed slope is **−35.5 µg/m³/h** versus the true −13.8 µg/m³/h — 2.6×
-overstated. The trend term (−1.0) happens to match today; with sparse data a flipped term is
-only a gap away.
+| 排名 | 日期 | >55 区域小时占比 |
+|---|---|---|
+| 1 | **2026-09-29** | **79%** |
+| 2 | 2026-09-30 | 71% |
+| 3 | 2026-09-14 | 68% |
 
-### 7. The RSS banner can pair a stale alert with a fresh headline (components, fig08 data)
+90 天里绝大多数日子很干净，但 9 月中旬（9/14 前后）与 9 月底（9/29–9/30）出现两轮
+集中事件（fig04）。9 月 29 日一天之内全岛 79% 的区域-小时组合超过 55 µg/m³，当天
+中部单小时峰值达 **165 µg/m³**、全岛日均值冲到 94.4。事件以 1–3 天为周期出现又回落，
+回落速度也很快（9/30 之后迅速转好）。
 
-`hotspots.fetch_rss()` takes the highest "Alert Level N" from *any* RSS item and pairs it with
-the *first* (latest) item's title, with no date check. Live, an **"Alert Level 3" from an
-26 Aug item** was displayed beside the 17 Sep "Review of Regional Weather" headline, rendering
-the critical banner in [src/ui/components.py:91](../../src/ui/components.py#L91). A 3-week-old
-alert reads as current.
+> **现实意义**：
+> - 雾霾不是"渐变到需要停工"，而是**前一天还正常、第二天突然全岛超标**。
+>   因此"看昨天没事就不做预案"是最大风险——**预警触发器应挂在火点/风向上
+>   （dashboard 的传输风险模块），而不是挂在 PM2.5 本身上**。
+> - 事件连续两天出现（9/29 + 9/30），说明**一旦触发，按 2 天连续来排计划**，
+>   第一天超标就恢复常态的概率很低。
+> - 事件后回落快：雾霾事件结束后的第一、二天就是补工的窗口期，可以提前和分包锁定。
 
-### 8. Transport risk: 796 fires in Kalimantan, but sumatra dominates the score (fig08)
+## 规律 5：1 小时 PM2.5 领先 24 小时 PSI 约 11 小时
 
-The latest NOAA-20 pass (23 Sep 16:23) reported 796 Kalimantan hotspots vs 75 in Sumatra —
-but the wind sector (S–SE/S–SW) puts Sumatra upwind of Singapore, so the transport engine
-returns **level 3 (+1.5) with dominant source sumatra**. On this day that single adder lifts
-all five regions from Band 1 to risk level 2: transport alone decides the advisory. Note the
-hotspot data is ~20 hours old at fetch time.
+去除日变化后做互相关，PSI 相对 PM2.5 的整体滞后为 **+11 小时**（fig06），与理论值
+（24 小时滚动平均的响应中心 ≈ 12 小时）吻合。也就是说：现场空气实际上变差/变好时，
+1 小时 PM2.5 立即反应，而 24 小时 PSI 要**半天之后**才完全跟上。
 
-## Data
+> **现实意义**：这解释了工地现场的常见困惑——"明明雾很大，PSI 怎么才 80？"
+> PSI 是 24 小时平均，天然迟钝。对应的操作规则：
+> - **现场即时行动**（发 N95、停工决策、撤离敏感人群）：看 1 小时 PM2.5，它是领先指标；
+> - **上报/规划/MOM 口径**（工时安排、记录、对外沟通）：看 24 小时 PSI，它是官方键控指标；
+> - PSI 涨得慢但**回落也慢**——事件结束后 PSI 还会在高位停留大半天，别在 PSI 还高时
+>   就质疑"现场明明好了"；反过来，现场转好后也别等 PSI 掉下来才恢复作业（以 1 小时 PM2.5 为准）。
 
-Snapshots used by the charts (frozen copies in `analysis/data/`):
+## 规律 6：五区域恶化速度的排序与均值排序一致
 
-| File | Contents |
-|------|----------|
-| `history_pm25_raw.csv` | runtime history CSV as of 24 Sep (200 rows, 25 unique) |
-| `live_pm25.csv`, `live_psi.csv`, `live_weather.csv` | live NEA readings, 24 Sep 11:45 |
-| `live_hotspots.csv`, `live_hotspot_points.csv`, `live_transport.csv` | ASMC hotspots + transport engine output |
-| `demo_pm25_24h.csv`, `demo_advisories.csv` | the 3 demo scenarios, full 24-h series + risk output |
+恶化最快的是中部（+0.46 µg/m³/天），最慢的是北部（+0.25）。均值越高的区域
+趋势斜率也越大（fig07），即**区域差距在雾霾季会越拉越大**——中部的相对劣势不是
+固定的，而是随时间放大的。
+
+> **现实意义**：给中部工地做 9 月排产时，用"中部均值 + 中部斜率 × 周数"外推，
+> 会比用全岛均值外推更接近实际。跨区域比价/比工时的时候，不能用一个岛级平均数套所有工地。
+
+---
+
+## 与 Dashboard 的衔接
+
+- 上述规律全部由 dashboard 同源的 NEA 数据得出，可以直接作为向管理层解释
+  "为什么中部工地的雾霾工时成本高"的量化依据（fig03 + fig07）。
+- 实时决策仍以 dashboard 为准：1 小时 PM2.5 键控现场行动，24 小时 PSI 键控工作规划，
+  传输风险模块（ASMC 火点 + 风向）提供事件预警。本分析是其 90 天历史版本。
+
+## 局限性
+
+- 窗口 90 天（一个西南季风季），东北季风季（12–3 月）的规律可能不同；建议每个季度
+  重跑一次本脚本更新结论。
+- NEA 不提供 `?date=` 的历史天气（风/雨只有当日近 25 分钟），故无法做火点→PM2.5
+  因果滞后分析；规律 4 的预警结论基于时间序列形态，非因果证明。
+- 日变化（规律 3）是 90 天平均形态，雾霾事件日的峰值时刻可能更早（事件日 15:00
+  前后往往已经很高）。
+- 本文档是运营参考，**不是 NEA / MOM 官方指示**。官方信息以 haze.gov.sg 为准。

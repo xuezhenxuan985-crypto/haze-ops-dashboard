@@ -1,48 +1,55 @@
-# Data Investigation — Reproduction
+# Analysis — 90 天历史雾霾规律分析
 
-Homework deliverable: investigate the Haze Ops Dashboard's project data with
-visualisations, save the code, charts, and brief findings (see `findings.md`).
+用 **NEA 官方 90 天历史数据**（2026-07-03 – 2026-09-30，5 区域 × 每小时 PM2.5/PSI）
+找有现实意义的规律：整体趋势、区域排行、日变化、事件集中度、PM2.5 与 PSI 的滞后关系。
+结论见 **[findings.md](findings.md)**，图表在 `charts/`，全部可复现。
 
-## Layout
+## 目录
 
 ```
 analysis/
-  scripts/
-    fetch_snapshot.py   collect a reproducible data snapshot into analysis/data/
-    make_charts.py      render fig01–fig08 PNGs into analysis/charts/
-  data/                 frozen CSV snapshots the charts read from
-  charts/               the 8 figure PNGs
-  findings.md           the findings, with figure references
+├── findings.md          # 规律 + 每条的"现实意义"（面向工地 Ops/EHS）
+├── charts/              # fig01–fig08，findings.md 内引用
+├── data/                # 冻结的 90 天历史（pm25_90d.csv / psi_90d.csv）
+└── scripts/
+    ├── fetch_history.py # 回填 90 天 NEA 数据 → data/（一次性，约 5 分钟）
+    └── make_charts.py   # data/ → charts/ 全部 8 张图 + 关键数字打印
 ```
 
-## Reproduce
+## 复现步骤
 
-From the repo root, with the project venv:
+```bash
+# 1) 回填 90 天历史（尊重 NEA 限流，约 180 个请求 / 5 分钟；单日失败自动跳过）
+.venv/bin/python analysis/scripts/fetch_history.py
 
-```sh
-.venv/bin/python analysis/scripts/fetch_snapshot.py   # fetch live data + demo series
-.venv/bin/python analysis/scripts/make_charts.py      # regenerate fig01–fig08
+# 2) 从冻结数据生成全部图表 + 关键数字
+.venv/bin/python analysis/scripts/make_charts.py
 ```
 
-Notes:
+`fetch_history.py` 写 `analysis/data/` 的冻结 CSV，**不会**碰 dashboard 运行时使用的
+`data/history_pm25.csv`。数据已在 2026-09-30 回填完毕，除非要延长窗口，否则只跑第 2 步。
 
-- `fetch_snapshot.py` calls the app's own fetch functions. Because
-  `nea_pm25.fetch_pm25()` **appends** to `data/history_pm25.csv` (that is how the app
-  persists history), running the snapshot script appends 5 rows to the runtime file;
-  the analysis freezes a copy (`analysis/data/history_pm25_raw.csv`) *before* fetching,
-  so the charts are deterministic even if the runtime file changes.
-- `make_charts.py` reads only `analysis/data/` — no network, no mutation of app data.
-  Set `CHECK_LAYOUT=1` to run its programmatic text-collision check.
+## 每张图回答的问题
 
-## Charts
+| 图 | 问题 | 结论（详见 findings.md） |
+|---|---|---|
+| fig01_island_trend | 90 天内整体在变好还是变差？ | 持续恶化，+0.36 µg/m³/天，R² 0.52（规律 1） |
+| fig02_diurnal_pattern | 一天里什么时段最差？ | 15:00 峰值 / 07:00 谷值，形态稳定（规律 3） |
+| fig03_region_ranking | 哪个区域最容易出问题？ | 中部最差（均值 34.7，11.5% 超标小时），北部最好（规律 2） |
+| fig04_episode_days | 污染是均匀分布还是集中爆发？ | 脉冲式：9/14、9/29–30 两轮事件，9/29 当天 79% 区域小时超标（规律 4） |
+| fig05_heatmap | 90 天 × 24 小时全貌 | 9 月下旬整体抬升 + 午后重于清晨（规律 1+3） |
+| fig06_psi_lag | 1 小时 PM2.5 和 24 小时 PSI 谁先动？ | PM2.5 领先 PSI 约 11 小时（规律 5） |
+| fig07_region_trends | 五区域的恶化速度一样吗？ | 中部恶化最快 +0.46/天，区域差距随时间放大（规律 6） |
+| fig08_distribution | 各区域小时值分布 | 中部分布最右且拖尾最长（峰值 165）（规律 2） |
 
-| Figure | Question | Finding |
-|--------|----------|---------|
-| fig01 | How much of the history file is real data? | 88% duplicate rows; append volume ×11 in 6 h |
-| fig02 | What does the real history timeline look like? | 4 snapshots in 2 days, central 101 spike, 3-h gap |
-| fig03 | Is the worst region stable? | central highest (101) → lowest (13) across days |
-| fig04 | Do the two headline metrics agree? | 1-h PM2.5: all Normal; 24-h PSI: all Moderate |
-| fig05 | What do the demos actually exercise? | central always worst; Band 4 never reached |
-| fig06 | Band-hours per demo scenario | episode = 79% Band 3, 0% Band 4 |
-| fig07 | Is the 3-h trend slope time-aware? | step indexing overstates the slope 2.6× |
-| fig08 | Do the fires explain the transport risk? | 796 Kalimantan fires, sumatra dominates upwind |
+## 数据说明
+
+- 来源：NEA data.gov.sg v2 realtime API 的 `pm25` / `psi` 端点 `?date=` 参数
+  （已实测可回查 5 个月以上）。天气端点无历史，故本分析不含风/雨。
+- 指标：1-hr PM2.5（即时性指标，键控现场行动）与 24-hr PSI（官方键控指标，键控工作规划）。
+- "超标"指 1 小时 PM2.5 > 55 µg/m³（本项目波段 Elevated 起点，与 dashboard 一致）。
+- 趋势 = 日均值 OLS 拟合斜率（µg/m³/天），R² 为拟合优度；滞后 = 去除日变化后的互相关峰值。
+
+## 免责声明
+
+本分析是运营规划辅助，不是 NEA / MOM 官方指示。官方信息以 [haze.gov.sg](https://www.haze.gov.sg) 为准。
