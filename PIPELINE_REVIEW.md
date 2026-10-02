@@ -1,131 +1,101 @@
-# 管道工程实践简报 — Haze Ops Dashboard
+# 管道工程实践问答 — Haze Ops Dashboard
 
-# Pipeline Engineering Review — Haze Ops Dashboard
+# Pipeline Engineering Q&A — Haze Ops Dashboard
 
-面向团队展示：管道如何组织与模块化、加了哪些测试与日志、这些变化如何让流程更可靠。
-For the team presentation: how the pipeline is organized and modularized, what tests and logging were added, and how these changes made it more reliable.
-
----
-
-## 1. 如何组织与模块化管道 / How the pipeline is organized and modularized
-
-### 四层单向依赖 + 唯一组合根 / Four one-way layers + a single composition root
-
-```
-app.py ──────── Streamlit 入口（sidebar、自动刷新 fragment）
-                Streamlit entry point (sidebar, auto-refresh fragment)
-   │
-src/ui/ ─────── 纯渲染层：theme / components / charts / map_view（只读 Snapshot，零网络、零计算）
-                Pure rendering: reads Snapshot only — no network, no logic
-   ▲
-src/risk/ ───── 纯函数风险层：bands / transport / engine / advisory / analysis（只依赖 config + models）
-                Pure-function risk layer (depends only on config + models)
-   ▲
-src/data/ ───── 数据层：fetcher / nea_pm25 / hotspots / weather / history / demo（只做获取与组装）
-                Data layer: fetching and assembly only
-   ▲
-config.py ───── 全部常量：端点、TTL、阈值、站点映射、权重（一处改，全局生效）
-                All constants: endpoints, TTLs, thresholds, station mapping, weights
-```
-
-**三条硬规则（靠目录边界强制执行）/ Three hard rules (enforced by directory boundaries)**:
-
-1. `src/risk/` 不 import 任何网络/Streamlit 模块——风险计算是纯函数，输入相同输出必相同。
-   `src/risk/` imports no network/Streamlit code — risk math is pure: same inputs, same outputs.
-2. `src/data/` 不 import `risk/` 和 Streamlit——数据层不知道"被谁消费"。
-   `src/data/` imports neither `risk/` nor Streamlit — the data layer doesn't know its consumers.
-3. `src/pipeline.py` 是**唯一组合根**：data 层取数 → `Snapshot` dataclass 组装 → risk 层计算 → ui 层渲染，
-   并持有全部 `@st.cache_data` 缓存。任何模块之间没有第二条通路。
-   `src/pipeline.py` is the **only composition root**: fetch → assemble `Snapshot` → compute risk → render,
-   and it owns all `@st.cache_data` caches. No module talks to any other behind its back.
-
-### 数据流 = 一条流水线，接口是 dataclass / One pipeline; the interface is a dataclass
-
-```
-NEA 5 endpoints + ASMC + FIRMS  ──(rate limit / retry / cache)──▶  Snapshot  ──▶  risk  ──▶  ui
-```
-
-- `models.py` 定义 `Snapshot`、`RegionAnalysis` 等 dataclass——层与层之间**只传数据，不传对象引用**，
-  任何一层都可以单独替换/测试（例如 demo 模式直接构造 `Snapshot`，绕开全部网络）。
-  `models.py` defines dataclasses (`Snapshot`, `RegionAnalysis`, …) — layers exchange plain data, never live objects,
-  so any layer can be swapped or tested in isolation (demo mode builds a `Snapshot` directly, bypassing all network).
-- 所有可调参数（PM2.5 波段边界、传输风险距离权重、缓存 TTL、站点→区域映射）集中在 `config.py`。
-  Every tunable (band thresholds, transport-risk weights, cache TTLs, station→region map) lives in `config.py`.
-- **双模式**：Live（真实 NEA/ASMC 数据）与 Demo（确定性种子合成数据）走同一条管道——
-  演示、截图、测试复用同一条路径，不是两套代码。
-  **Dual mode**: Live (real NEA/ASMC data) and Demo (deterministic seeded synthetic data) share the same pipeline —
-  demos, screenshots and tests exercise the same code path, not a second one.
+按五个问题组织 / Organized around five questions.
 
 ---
 
-## 2. 测试与日志 / Tests and logging
+## 1. 我们把什么拆成了函数/模块？ What did we separate into functions/modules?
 
-### 测试：87 项，全绿，22.8 秒跑完 / Tests: 87 passing in 22.8 s (`pytest -q`)
+**模块（按层）/ Modules (by layer)**：
 
-| 文件 File | 覆盖 Covers | 为什么重要 Why it matters |
-|---|---|---|
-| `test_bands.py` / `test_transport.py` / `test_engine.py` / `test_advisory.py` | 风险层全部纯函数 / all risk-layer pure functions | 核心决策逻辑可离线验证 / core decision logic verified offline |
-| `test_parsers.py` | ASMC/NEA 各端点解析（含多过境合并、去重）/ all endpoint parsers | 上游格式变了能第一时间发现 / catches upstream format changes |
-| `test_analysis.py` | OLS 拟合、区域分析、14 天回填 / OLS, regional analysis, backfill | 新功能全量覆盖 / new features fully covered |
-| `test_history.py` | 历史 CSV 追加/裁剪/去重 / CSV append, windowing, dedupe | 持久化正确性 / persistence correctness |
-| `test_i18n.py` | EN/中文键集相等 + 全部模板可格式化 / equal key sets + all templates formattable | 双语切换不会崩 / language switch can't break |
-| `test_app_smoke.py` | **Streamlit `AppTest` 全应用冒烟**（整页渲染 + 双语切换）/ full-app smoke via Streamlit `AppTest` | 端到端回归，不用开浏览器 / end-to-end regression, no browser needed |
+| 模块 Module | 职责 Responsibility |
+|---|---|
+| `config.py` | 全部常量：端点、TTL、波段阈值、距离权重、站点→区域映射 / all constants: endpoints, TTLs, band thresholds, distance weights, station→region map |
+| `src/data/fetcher.py` | 统一 HTTP：共享 `RateLimiter`（6次/10s）、重试+退避 / shared HTTP: one `RateLimiter`, retry + backoff |
+| `src/data/nea_pm25.py` / `nea_weather.py` | NEA 各端点的获取与解析（实时 + `?date=` 回填）/ per-endpoint fetch & parse |
+| `src/data/hotspots.py` | ASMC 火点（多过境合并去重）+ FIRMS 富化 / hotspot sources + FIRMS enrichment |
+| `src/data/history.py` | 运行时历史 CSV：追加、窗口裁剪、去重 / runtime history CSV: append, window, dedupe |
+| `src/data/pipeline.py` | 唯一组合根：组装 `Snapshot` + 全部缓存 / the only composition root: builds `Snapshot`, owns all caches |
+| `src/risk/bands.py` / `transport.py` / `engine.py` / `advisory.py` / `analysis.py` | 纯函数：波段分级、趋势斜率、传输风险、工作决策、区域分析 / pure functions: bands, trend, transport risk, work decisions, regional analysis |
+| `src/ui/` | 纯渲染：theme / components / charts / map_view / pure rendering only |
+| `app.py` | Streamlit 入口：sidebar、语言、自动刷新 fragment / entry: sidebar, language, auto-refresh |
 
-**两个具体例子 / Two concrete examples**:
+**函数级拆分 / Function-level splits**：
+- `http_get()` 与解析逻辑分开——网络容错和业务解析各自独立可测 / `http_get()` separated from parsing — network tolerance and business parsing testable independently
+- `fetch_pm25()`（实时）与 `fetch_pm25_backfill()`（历史）共用同一个 `_parse_payload()` / live and backfill fetches share one `_parse_payload()`
+- 决策逻辑拆成小纯函数：`band_of()`、`trend_slope()`（OLS）、`advisory_for_psi()`、`work_matrix_for_psi()`、`compute_region_analysis()`，每个函数只做一件事 / decision logic as small pure functions, each doing one thing
 
-① **把合规红线变成测试 / Turning a compliance red-line into a test** (`test_advisory.py`)：
-MOM 官方对 PSI >300 的表述是"尽量减少户外作业"，**绝不**是"全面停工"。测试断言所有 PSI >300 建议文案
-不出现 `"stop work" / "全面停止"`——措辞一旦踩线，测试立即变红，合规风险被自动化管住。
-MOM's official wording above PSI 300 is "minimise outdoor work", never "stop all work". A test asserts that
-no PSI>300 advisory ever contains "stop work / 全面停止" — one wording slip and the test goes red;
-the compliance risk is automated.
+## 2. 为什么选这些边界？ Why did we choose those boundaries?
 
-② **把容错变成测试 / Turning fault-tolerance into a test** (`test_analysis.py`)：
-回填对单日失败必须"跳过该天、继续下一天、绝不抛异常"。测试用 FakeSession 构造"第 2 天返回 404"的场景，
-断言行数正确、无异常、其余天数数据完整——网络故障路径和正常路径一样可回归。
-The 14-day backfill must skip a failed day and continue, never raise. A test fakes "day 2 returns 404"
-and asserts the remaining days are intact with no exception — the failure path regresses like the happy path.
+- **副作用与纯函数分开**：网络/Streamlit 只存在于 data 层与 pipeline；risk 层是纯函数——相同输入必得相同输出，可以离线、批量、确定性测试 / **side effects separated from pure logic**: network/Streamlit live only in the data layer; the risk layer is pure — same inputs give the same outputs, so it can be tested offline, in bulk, deterministically.
+- **单一职责**：取数、计算、展示三层各只干一件事；一个端点改了格式，只可能波及 `nea_*.py` 和 `test_parsers.py`，不会传染到决策逻辑 / **single responsibility**: fetch / compute / render each do one thing; if an endpoint changes format, only `nea_*.py` and its parser tests are affected — the decision logic is untouched.
+- **组合根模式**：所有依赖只朝一个方向（config → data → risk → ui），`pipeline.py` 是唯一的组装点——从结构上消灭循环依赖，也消灭"绕过缓存的第二条通路" / **composition-root pattern**: dependencies flow one way only (config → data → risk → ui) and `pipeline.py` is the single assembly point — circular imports are structurally impossible, and there is no second path that could bypass the caches.
+- **层间接口是 dataclass**：传数据不传对象，任何一层都能单独替换（demo 模式直接构造 `Snapshot` 就绕开了全部网络）/ **dataclasses as layer interfaces**: layers exchange plain data, so any layer can be swapped — demo mode builds a `Snapshot` directly and bypasses all network.
+- **常量全部集中**：调参（阈值、权重、TTL）只改 `config.py`，不用翻业务代码 / **constants centralized**: tuning thresholds, weights or TTLs means editing `config.py` only, never business code.
 
-### 日志：每个数据模块自带 `logging.getLogger(__name__)` / Logging: every data module has its own logger
+## 3. 展示一个测试和一条有用的日志 / Show one test and one useful log message
 
-日志只记录**可恢复的异常**，不记录敏感数据 / Logs record recoverable failures only, never sensitive data:
+**测试 / The test**（`tests/test_advisory.py` — 把合规红线自动化 / automating a compliance red-line）：
 
 ```python
-# fetcher.py — every retry is traceable (attempt number + reason)
-log.warning("GET %s attempt %d failed: %s", url, attempt + 1, exc)
-log.warning("GET %s rate-limited (429); waiting %.1fs", url, delay)
-
-# nea_pm25.py — backfill reports per-day; silent failures are eliminated
-log.warning("pm25 backfill %s: empty payload", date_str)
-
-# pipeline.py — each upstream source fails independently; one down ≠ app down
-log.warning("pm25 fetch failed: %s", exc)
+def test_tier4_never_says_stop():
+    for lang in ("en", "zh"):
+        for tier in (1, 2, 3, 4, 5):
+            text = tr(advisory_for_psi(tier), lang).lower()
+            assert "stop" not in text
+            assert "全面停" not in text
+            assert "停工" not in text
 ```
 
-配合 Streamlit 界面的**降级横幅**（如"火点数据部分可用"）：出问题时，日志定位到具体源、界面明示到用户，两层都透明。
-Together with on-screen **degradation banners** ("hotspot data partially available"): logs pinpoint the source,
-the UI tells the user — both layers stay transparent.
+MOM 官方对 PSI >300 的表述是"尽量减少户外作业"，**绝不**是"全面停工"。这条测试遍历全部 PSI 档位和两种语言，
+断言文案绝不含"stop / 停工"——任何人改措辞踩线，测试立刻红。
+MOM's official wording above PSI 300 is "minimise outdoor work", never "stop all work". This test sweeps
+all PSI tiers and both languages and asserts the copy never contains "stop / 停工" — any wording slip turns it red instantly.
 
----
+**日志 / The log message**（`src/data/fetcher.py` — 每次重试都留痕 / every retry is traceable）：
 
-## 3. 可靠性与编码风险 / Reliability and the coding risks reduced
+```python
+log.warning("GET %s attempt %d failed: %s", url, attempt + 1, exc)
+log.warning("GET %s rate-limited (429); waiting %.1fs", url, delay)
+```
 
-| 编码风险 Coding risk | 我们的措施 Our mitigation |
+为什么有用：它带 URL、第几次尝试和原因（异常/429）。生产上 NEA 突然限流时，日志能直接回答
+"哪个端点、重试了几次、等了多久"——而不是只有一句笼统的 "fetch failed"。
+Why it's useful: it carries the URL, the attempt number and the reason (exception / 429). When NEA suddenly
+rate-limits us in production, the log answers "which endpoint, how many retries, how long we waited" —
+instead of a generic "fetch failed".
+
+## 4. 降低了哪些编码风险？ What coding risks have we reduced?
+
+| 风险 Risk | 措施 Mitigation |
 |---|---|
-| 上游 API 限流封禁 / upstream API ban | 全局共享 `RateLimiter`（6 次/10s），所有请求统一排队 / one shared `RateLimiter` (6 calls / 10 s) for all requests |
-| 瞬时网络抖动导致整页崩溃 / a blip crashes the whole page | fetcher 内置重试 + 退避；各数据源独立 try/except，单源失败走降级 / retry + backoff; each source fails independently into a degraded state |
-| 重复拉取 / 启动慢 / refetching; slow startup | `@st.cache_data` 按 TTL 缓存（实时 5 分钟、回填 6 小时）/ TTL-based caching (5 min live, 6 h backfill) |
-| 历史数据重复写入 / duplicate history rows | 读取时按 (时间, 区域) 去重；回填与实时采集写同一 CSV 天然幂等 / dedupe on (time, region); backfill + live append are idempotent |
-| 分析脚本污染运行时数据 / analysis polluting runtime data | 回填写 `analysis/data/` 冻结 CSV，**永远不碰**运行时 CSV / frozen CSVs under `analysis/data/`, runtime CSV untouched |
-| 逻辑错误混进展示层 / logic bugs hiding in the UI | 风险计算是纯函数层，87 项单测离线全覆盖 / risk logic is a pure layer with 87 offline unit tests |
-| 合规措辞 / 单位混用 / wrong wording or unit mixing | 铁律写成测试：>300 无"停工"表述、PSI 绝不与 US AQI 混排 / red-lines as tests: no "stop work" wording, PSI never mixed with US AQI |
-| 敏感信息泄露 / leaking secrets | FIRMS key 只存浏览器 session_state，**不落盘、不入日志** / FIRMS key lives in session_state only — never on disk, never logged |
-| 全应用回归没人跑 / no full-app regression | AppTest 冒烟测试每次提交都跑 / AppTest smoke runs on every suite run |
-| 中文文案半缺失 / half-missing Chinese copy | i18n 测试断言 EN/中文键集完全相等 + 模板全部可格式化 / i18n tests assert equal key sets and formattable templates |
+| 上游 API 限流封禁 / upstream API ban | 全局共享 `RateLimiter`，所有请求统一排队 / one shared RateLimiter for all requests |
+| 瞬时抖动崩掉整页 / a blip crashes the page | 重试+退避；各数据源独立 try/except，单源失败走降级横幅 / retry + backoff; per-source failure degrades gracefully with a banner |
+| 历史数据重复/不一致 / duplicate history rows | 按 (时间, 区域) 去重；回填与实时采集写同一 CSV 天然幂等 / dedupe on (time, region); backfill + live append are idempotent |
+| 分析污染运行时数据 / analysis polluting runtime data | 回填写 `analysis/data/` 冻结 CSV，不碰运行时 CSV / frozen CSVs under analysis/data/, runtime CSV untouched |
+| 敏感信息泄露 / leaking secrets | FIRMS key 只存 session_state，不落盘、不入日志 / FIRMS key in session_state only — never on disk, never logged |
+| 合规措辞/单位混用 / wrong wording or unit mixing | 铁律写成测试（>300 无"停工"；PSI 不与 US AQI 混排）/ red-lines as tests |
+| 逻辑错误混进展示层 / logic bugs in the UI | 风险层纯函数 + 87 项离线单测 / pure risk layer with 87 offline unit tests |
+| 静默失败没人知道 / silent failures | 逐源日志 + 界面降级横幅 / per-source logging + on-screen banners |
+| 全应用回归没人跑 / no full-app regression | AppTest 全应用冒烟测试（整页渲染 + 双语）/ AppTest full-app smoke |
+| 中文文案半缺失 / half-missing Chinese copy | i18n 测试断言 EN/中文键集相等 + 全部模板可格式化 / equal key sets + all templates formattable |
 
-**一句话总结 / One-line summary**：把"容易出错的地方"从人的纪律改成了**结构**（分层 + 纯函数 + 单一组合根）
-和**自动化**（87 项测试 + 逐源日志 + 降级横幅）——管道不再依赖"记得检查"，而是"错不了，或错了立刻知道错在哪"。
+## 5. 还有什么风险仍在？ What risks still remain?
 
-We moved "easy to get wrong" from human discipline into **structure** (layering + pure functions + one composition root)
-and **automation** (87 tests + per-source logging + degradation banners) — the pipeline no longer relies on
-"remember to check"; it either can't go wrong, or tells you exactly where it did.
+诚实地说，仍有五类 / Five, honestly:
+
+1. **数据本身的滞后与缺失 / stale or missing upstream data**：NEA 整点值偶尔延迟；ASMC 火点每天只随卫星过境更新约 2 次，其 RSS 接口经常滞后。我们的降级横幅能"明示问题"，但无法"造出数据"——极端情况下可能基于滞后数据做决策。
+   NEA hourly values occasionally arrive late; ASMC hotspots update only ~2×/day with satellite passes and its RSS often lags. Our banners make the problem visible but cannot invent data — decisions could occasionally rest on stale numbers.
+2. **传输风险是启发式而非因果预测 / transport risk is heuristic, not causal**：距离权重、风向扇区匹配是经验规则，会有误报（虚惊）和漏报（真来了没预警）。
+   Distance weights and wind-sector matching are empirical rules — there will be false alarms and misses.
+3. **云端重部署清空历史 / redeploys wipe runtime history**：Streamlit Community Cloud 重部署会清空临时文件系统，`data/history_pm25.csv` 只能重新回填 14 天——更早的运行时历史会丢失（分析用的 90 天冻结 CSV 在仓库里，不受影响）。
+   Redeploys wipe the ephemeral filesystem; the runtime CSV can only be re-backfilled 14 days — older runtime history is lost (the frozen 90-day analysis CSVs live in the repo, so they're safe).
+4. **没有 CI 和线上监控 / no CI and no monitoring**：87 项测试只在本地手动跑，忘记跑测试的提交没人拦；应用或数据源出故障，只有有人打开页面才会发现。
+   The 87 tests run only locally and manually — a commit pushed without running them slips through; if the app or a source breaks, nobody knows until someone opens the page.
+5. **冷启动回填延迟 / cold-start backfill latency**：首次加载要回填 14 天历史（约 20–30 秒），首次体验偏慢。
+   First load backfills 14 days (~20–30 s) — slow first impression.
+
+**后续打算 / Planned next steps**：给仓库加 GitHub Actions 跑测试（风险 4）；把运行时历史挪到持久化存储或定期把 CSV 提交回仓库（风险 3）。
+Add GitHub Actions to run the suite on every push (risk 4); move runtime history to persistent storage or archive the CSV back into the repo periodically (risk 3).
