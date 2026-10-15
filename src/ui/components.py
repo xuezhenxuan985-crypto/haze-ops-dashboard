@@ -1,6 +1,8 @@
 """Reusable UI pieces: header, KPI row, region cards, RSS banner, decisions.
 
 Pure rendering of the Snapshot — no fetching, no risk math here.
+(The AI brief tab is the one exception: it triggers the optional LLM call
+through pipeline.fetch_ai_brief, which is cached there.)
 render_factor handles the nested i18n args (band_name / tier_name / source)
 produced by advisory.explain_factors.
 """
@@ -12,6 +14,7 @@ import streamlit as st
 
 import config
 from ..i18n import tr
+from ..data import pipeline
 from ..data.models import (RegionAdvisory, RegionAnalysis, RegionPM25, RegionPSI,
                            RegionWeather, Snapshot)
 from . import charts, theme
@@ -317,6 +320,38 @@ def render_analysis_tab(snapshot: Snapshot, lang: str) -> None:
     with c2:
         st.plotly_chart(charts.overrun_share_chart(snapshot, lang),
                         width="stretch", config={"displayModeBar": False})
+
+
+# ---------------------------------------------------------------------------
+# AI brief tab (optional LLM feature)
+# ---------------------------------------------------------------------------
+def render_ai_brief_tab(snapshot: Snapshot, lang: str, api_key: str) -> None:
+    """Optional AI briefing: LLM call on demand, graceful fallback without a key."""
+    st.markdown(f"**{tr('ai_brief_title', lang)}**")
+    st.caption(tr("ai_brief_desc", lang))
+
+    if not api_key:
+        st.info(tr("ai_brief_no_key", lang), icon="🤖")
+        st.caption(tr("ai_brief_disclaimer", lang))
+        return
+
+    if st.button(tr("ai_brief_generate", lang)):
+        try:
+            with st.spinner(tr("ai_brief_loading", lang)):
+                result = pipeline.fetch_ai_brief(snapshot, lang, api_key)
+        except Exception as exc:  # noqa: BLE001 — LLM call must never break the page
+            st.warning(tr("ai_brief_error", lang, err=str(exc)), icon="⚠️")
+            st.caption(tr("ai_brief_disclaimer", lang))
+            return
+        if result is None:
+            st.warning(tr("ai_brief_error", lang, err="no response"), icon="⚠️")
+            st.caption(tr("ai_brief_disclaimer", lang))
+            return
+        text, sanitized = result
+        st.markdown(text)
+        if sanitized:
+            st.caption(f"✏️ {tr('ai_brief_sanitized', lang)}")
+        st.caption(tr("ai_brief_disclaimer", lang))
 
 
 # ---------------------------------------------------------------------------

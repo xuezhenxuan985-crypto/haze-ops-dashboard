@@ -64,7 +64,7 @@ class FakeSession:
             return route()
         return route if route is not None else FakeResponse("", 404)
 
-    def post(self, url, data=None, headers=None, timeout=None):
+    def post(self, url, data=None, headers=None, timeout=None, json=None):
         self.calls.append(("post", url))
         route = self.routes.get(url)
         if callable(route):

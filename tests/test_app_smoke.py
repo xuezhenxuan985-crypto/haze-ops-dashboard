@@ -35,8 +35,8 @@ def test_demo_page_renders(at: AppTest):
     assert at.session_state["mode"] == "demo"
     # KPI metrics present (5 of them).
     assert len(at.metric) >= 5
-    # Tabs exist (air quality, hotspots, decisions, history analysis).
-    assert len(at.tabs) == 4
+    # Tabs exist (air quality, hotspots, decisions, history analysis, AI brief).
+    assert len(at.tabs) == 5
     # Region cards / markdown rendered.
     assert at.markdown
     # Demo note flag shown (rendered as an info banner, not markdown).
@@ -50,6 +50,14 @@ def test_analysis_tab_renders(at: AppTest):
     assert "averaged below 55" in texts or "平均都在 55" in texts
     html = " ".join(m.value for m in at.markdown)
     assert "Most stable" in html or "最稳定" in html
+
+
+def test_ai_brief_tab_shows_guidance_without_key(at: AppTest):
+    # No API key configured -> the tab explains how to enable it, no LLM call.
+    infos = " ".join(i.value for i in at.info)
+    assert "Anthropic" in infos
+    texts = " ".join(m.value for m in at.markdown)
+    assert "haze.gov.sg" in texts
 
 
 def test_zh_language_switch(at: AppTest):

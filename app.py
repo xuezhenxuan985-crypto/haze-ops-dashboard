@@ -18,6 +18,7 @@ theme.inject_css()
 
 st.session_state.setdefault("lang_control", "EN")
 st.session_state.setdefault("firms_key", "")
+st.session_state.setdefault("anthropic_key", "")
 st.session_state.setdefault("force_version", 0)
 
 
@@ -46,6 +47,10 @@ with st.sidebar:
             tr("sidebar_firms_key", lang), type="password", key="firms_key",
             help=tr("sidebar_firms_help", lang),
         )
+    st.text_input(
+        tr("sidebar_ai_key", lang), type="password", key="anthropic_key",
+        help=tr("sidebar_ai_help", lang),
+    )
     st.segmented_control(
         tr("sidebar_language", lang), ["EN", "中文"], key="lang_control",
         label_visibility="collapsed",
@@ -89,9 +94,10 @@ def main() -> None:
         with col:
             components.render_region_card(region, snapshot, lang)
 
-    tab_aq, tab_hs, tab_dec, tab_an = st.tabs([
+    tab_aq, tab_hs, tab_dec, tab_an, tab_ai = st.tabs([
         tr("tab_air_quality", lang), tr("tab_hotspots", lang),
         tr("tab_decisions", lang), tr("tab_analysis", lang),
+        tr("tab_ai_brief", lang),
     ])
 
     with tab_aq:
@@ -129,6 +135,10 @@ def main() -> None:
 
     with tab_an:
         components.render_analysis_tab(snapshot, lang)
+
+    with tab_ai:
+        components.render_ai_brief_tab(
+            snapshot, lang, st.session_state.get("anthropic_key", ""))
 
     components.render_footer(lang)
 

@@ -104,7 +104,18 @@ TTL_RSS = 1800
 TTL_HISTORY = 300
 TTL_ANALYSIS_HISTORY = 21600  # 6 h — the 14-day backfill is expensive (1 GET/day)
 TTL_SNAPSHOT = 300
+TTL_AI_BRIEF = 1800  # same snapshot + language -> same brief; don't re-call the LLM
 FRAGMENT_REFRESH_S = 300
+
+# ---------------------------------------------------------------------------
+# Anthropic (Claude) — optional AI operational briefing, same pattern as FIRMS:
+# key entered in the sidebar, lives in session_state only, never persisted.
+# ---------------------------------------------------------------------------
+ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
+ANTHROPIC_VERSION = "2023-06-01"
+ANTHROPIC_MODEL = "claude-sonnet-5"
+ANTHROPIC_MAX_TOKENS = 700
+ANTHROPIC_TIMEOUT_S = 30.0
 
 # ---------------------------------------------------------------------------
 # Official band thresholds (haze.gov.sg / NEA; verified 2026-09-17)

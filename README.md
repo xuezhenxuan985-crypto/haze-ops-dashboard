@@ -16,6 +16,10 @@ python3 -m venv .venv
 - **NASA FIRMS（可选富化）**：在 [firms.modaps.eosdis.nasa.gov/api/map_key/](https://firms.modaps.eosdis.nasa.gov/api/map_key/) 免费注册，
   将 key 粘贴到 sidebar（仅保存在浏览器会话中，不落盘、不入日志）。ASMC 数据正常时不参与计数，仅在地图上做逐点展示与交叉校验；
   ASMC 完全不可用时自动降级为计数来源并显示横幅。
+- **AI 简报（可选）**：在 [console.anthropic.com](https://console.anthropic.com/) 获取 Anthropic API key 并粘贴到 sidebar
+  （同样只存浏览器会话），即可在 "AI brief" 标签页一键生成当天的运营简报——由 Claude 阅读面板同一份数据（PM2.5/PSI/风/雨/火点/14 天历史）
+  写成中/英文大白话。没有 key 时该页显示引导说明，其余标签页不受任何影响。模型输出带双保险：提示词禁止"全面停工"类措辞 +
+  输出后自动替换（`sanitize_brief`），文案永远带"非官方 NEA/MOM 指示"免责声明。
 - **语言**：sidebar 可切换 EN / 中文（数字保持西文，新加坡惯例）。
 - 测试：`.venv/bin/python -m pytest -q`（含 `streamlit.testing` 全应用冒烟测试）。
 
