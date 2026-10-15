@@ -33,7 +33,7 @@ python3 -m venv .venv
 | 火点（Sumatra / Kalimantan / P. Malaysia） | ASMC `DailyJP1NOAA20.{region}.txt` | 每次 NOAA-20 过境（约 2 次/天） | 主干，免 key |
 | 7 日火点计数 / 警报 | ASMC AJAX / RSS | 约 1 天 / 实时 | 仅作昨日对比（该接口经常滞后/为零）与 Alert Level 展示 |
 | FIRMS 逐点火点 | NASA FIRMS CSV | 约 3 小时近实时 | 可选富化（需 key） |
-| 历史回填（过去 14 天每小时 PM2.5） | NEA v2 realtime API `pm25?date=` | 覆盖不足时一次性回填（6h 缓存） | 支撑"历史分析"页的区域排行与趋势；与实时采集写入同一 CSV，读取时按 (时间, 区域) 去重。云端临时文件系统在重部署后会清空，自动重新回填 |
+| 历史回填（过去 14 天每小时 PM2.5） | NEA v2 realtime API `pm25?date=` | 覆盖不足时一次性回填（6h 缓存） | 支撑"历史分析"页的区域排行与趋势；与实时采集写入同一张 SQLite 表，写入时按主键 (时间, 区域) UPSERT 去重。云端临时文件系统在重部署后会清空，自动重新回填 |
 
 **站点→区域映射**：官方不存在，本项目使用自建策展表（19 站，基于官方坐标与 NEA 城镇分区）；
 降雨 88 站按最近区域锚点自动归类（近似值，见 `config.STATION_REGION` / `REGION_ANCHORS` 注释）。
@@ -42,6 +42,39 @@ python3 -m venv .venv
 `***** Hotspot Count Report *****` 头与计数），解析器按段求和计数、按 3 位小数坐标去重，
 保证"计数 == 点数"。因此本面板的 Sumatra 计数可能比 ASMC 官网显示的"主条带计数"多出
 第二/第三条带的少数火点（例如 223 + 9 = 232）。
+
+## SQL 使用（SQLite）
+
+运行时 PM2.5 历史存储在 `data/history.db`（SQLite，Python 标准库 `sqlite3`，零新依赖）。
+WAL 日志模式 + busy timeout 让多个浏览器会话可并发写入；所有写入都是尽力而为（云端只读文件系统时静默降级）。
+
+```sql
+-- 表结构（src/data/db.py 中的 SCHEMA）
+CREATE TABLE IF NOT EXISTS pm25_history (
+    ts     TEXT    NOT NULL,   -- ISO 8601, +08:00（字典序 == 时间序）
+    region TEXT    NOT NULL,
+    value  REAL    NOT NULL,
+    PRIMARY KEY (ts, region)
+);
+CREATE INDEX IF NOT EXISTS idx_pm25_history_ts ON pm25_history (ts);
+
+-- 写入：主键冲突时保留最后写入值（写入时去重，替代旧的读时去重）
+INSERT INTO pm25_history (ts, region, value) VALUES (?, ?, ?)
+ON CONFLICT(ts, region) DO UPDATE SET value = excluded.value;
+
+-- 读取：窗口过滤（替代 pandas 裁剪）
+SELECT ts, region, value FROM pm25_history
+WHERE ts >= ? ORDER BY ts, region;
+
+-- 聚合：区域统计（14 天分析页的覆盖检查）
+SELECT region, COUNT(*) AS hours, AVG(value) AS mean, MAX(value) AS max,
+       SUM(value > 55) AS hours_el, SUM(value > 150) AS hours_hi, SUM(value > 250) AS hours_vhi
+FROM pm25_history WHERE ts >= ? GROUP BY region;
+```
+
+旧版 `data/history_pm25.csv` 会在首次加载时一次性迁移进 SQLite 并归档为 `.csv.legacy`。
+SQL 负责存储、窗口过滤与 GROUP BY 聚合；中位数/OLS 趋势等统计仍在 pandas（`src/risk/analysis.py`）——
+各用其所长。
 
 ## 风险模型（全部常量在 `config.py`，可直接校准）
 
@@ -70,12 +103,13 @@ python3 -m venv .venv
 ```
 app.py                 # Streamlit 入口（sidebar + @st.fragment(run_every=300)）
 config.py              # 全部常量：端点、TTL、阈值、站点映射、权重
-src/data/              # 获取与组装（fetcher/nea_*/hotspots/demo/history/pipeline）
+src/data/              # 获取与组装（fetcher/nea_*/hotspots/demo/history/db/pipeline）
 src/risk/              # 纯函数风险层（bands/transport/engine/advisory/analysis）
 src/i18n.py            # EN/中文 全部文案
 src/ui/                # 纯渲染层（theme/components/charts/map_view）
 tests/                 # pytest（含 AppTest 全应用冒烟）
-data/history_pm25.csv  # 运行时 1-hr PM2.5 历史（重启后 24h 图延续）
+data/history.db        # SQLite：运行时 1-hr PM2.5 历史（重启后 24h 图延续）
+data/history_pm25.csv.legacy  # 迁移归档的旧 CSV（首次加载时生成）
 ```
 
 分层约束：`ui/` 只渲染 Snapshot；`risk/` 只依赖 `config` 与 `models`；`data/` 不依赖 `risk/` 与 Streamlit；

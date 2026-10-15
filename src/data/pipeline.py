@@ -22,7 +22,7 @@ import streamlit as st
 
 import config
 from ..risk import advisory, analysis as risk_analysis, bands, engine, transport
-from . import ai_brief, demo_data, history, hotspots, nea_pm25, nea_psi, nea_weather
+from . import ai_brief, db, demo_data, history, hotspots, nea_pm25, nea_psi, nea_weather
 from .models import (Reading, RegionAdvisory, RegionPM25, RegionPSI, RegionWeather,
                      RSSStatus, Snapshot, SourceHotspots)
 
@@ -122,9 +122,15 @@ def _load_analysis_history(force_version: int) -> pd.DataFrame | None:
     as-is; the caller adds flag_analysis_partial.
     """
     df = history.load_pm25_history_window(config.ANALYSIS_DAYS)
-    covered = float(df.count().mean()) if df is not None and not df.empty else 0.0
+    # Coverage from SQL GROUP BY per region (COUNT(*)); mean over regions,
+    # scaled to the 14 x 24 expected hours — same semantics as before.
+    cutoff = (pd.Timestamp.now(tz="Asia/Singapore")
+              - pd.Timedelta(days=config.ANALYSIS_DAYS)).isoformat()
+    stats = db.region_stats(config.HISTORY_DB, cutoff)
     expected = config.ANALYSIS_DAYS * 24.0
-    if covered < expected * config.ANALYSIS_COVERAGE_MIN:
+    covered = (float(sum(s["hours"] for s in stats.values())) / (len(config.REGIONS) * expected)
+               if stats else 0.0)
+    if covered < config.ANALYSIS_COVERAGE_MIN:
         try:
             rows = nea_pm25.fetch_pm25_backfill(config.ANALYSIS_DAYS)
             if rows:

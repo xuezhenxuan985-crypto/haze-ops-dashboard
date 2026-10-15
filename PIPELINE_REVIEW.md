@@ -16,7 +16,8 @@
 | `src/data/fetcher.py` | 统一 HTTP：共享 `RateLimiter`（6次/10s）、重试+退避 / shared HTTP: one `RateLimiter`, retry + backoff |
 | `src/data/nea_pm25.py` / `nea_weather.py` | NEA 各端点的获取与解析（实时 + `?date=` 回填）/ per-endpoint fetch & parse |
 | `src/data/hotspots.py` | ASMC 火点（多过境合并去重）+ FIRMS 富化 / hotspot sources + FIRMS enrichment |
-| `src/data/history.py` | 运行时历史 CSV：追加、窗口裁剪、去重 / runtime history CSV: append, window, dedupe |
+| `src/data/db.py` | SQLite 层：UPSERT 写入去重、WHERE 窗口查询、GROUP BY 聚合、WAL 并发 / SQLite layer: UPSERT dedupe on write, WHERE window queries, GROUP BY aggregates, WAL concurrency |
+| `src/data/history.py` | 运行时历史：SQLite 写入、窗口读取、旧 CSV 一次性迁移 / runtime history: SQLite writes, window reads, one-shot legacy CSV migration |
 | `src/data/pipeline.py` | 唯一组合根：组装 `Snapshot` + 全部缓存 / the only composition root: builds `Snapshot`, owns all caches |
 | `src/risk/bands.py` / `transport.py` / `engine.py` / `advisory.py` / `analysis.py` | 纯函数：波段分级、趋势斜率、传输风险、工作决策、区域分析 / pure functions: bands, trend, transport risk, work decisions, regional analysis |
 | `src/ui/` | 纯渲染：theme / components / charts / map_view / pure rendering only |
@@ -73,7 +74,7 @@ instead of a generic "fetch failed".
 |---|---|
 | 上游 API 限流封禁 / upstream API ban | 全局共享 `RateLimiter`，所有请求统一排队 / one shared RateLimiter for all requests |
 | 瞬时抖动崩掉整页 / a blip crashes the page | 重试+退避；各数据源独立 try/except，单源失败走降级横幅 / retry + backoff; per-source failure degrades gracefully with a banner |
-| 历史数据重复/不一致 / duplicate history rows | 按 (时间, 区域) 去重；回填与实时采集写同一 CSV 天然幂等 / dedupe on (time, region); backfill + live append are idempotent |
+| 历史数据重复/不一致 / duplicate history rows | SQLite 主键 (时间, 区域) + UPSERT 写入时去重；回填与实时采集写同一张表天然幂等 / SQLite PRIMARY KEY (time, region) + UPSERT dedupe at write time; backfill + live append are idempotent |
 | 分析污染运行时数据 / analysis polluting runtime data | 回填写 `analysis/data/` 冻结 CSV，不碰运行时 CSV / frozen CSVs under analysis/data/, runtime CSV untouched |
 | 敏感信息泄露 / leaking secrets | FIRMS key 只存 session_state，不落盘、不入日志 / FIRMS key in session_state only — never on disk, never logged |
 | 合规措辞/单位混用 / wrong wording or unit mixing | 铁律写成测试（>300 无"停工"；PSI 不与 US AQI 混排）/ red-lines as tests |

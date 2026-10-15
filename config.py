@@ -10,7 +10,8 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
-HISTORY_CSV = DATA_DIR / "history_pm25.csv"
+HISTORY_CSV = DATA_DIR / "history_pm25.csv"  # legacy; auto-migrated into SQLite once
+HISTORY_DB = DATA_DIR / "history.db"         # SQLite: pm25_history (ts, region, value)
 HISTORY_HOURS = 48
 ANALYSIS_DAYS = 14          # history-analysis window (NEA date-param backfill)
 ANALYSIS_COVERAGE_MIN = 0.6  # trigger backfill below this fraction of expected hours

@@ -24,9 +24,11 @@ def _fast_fetcher(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _isolate_history(monkeypatch, tmp_path):
-    """History CSV writes land in a per-test temp dir, never the repo data/."""
+    """History writes (SQLite DB + legacy CSV) land in a per-test temp dir,
+    never the repo data/."""
     monkeypatch.setattr(config, "DATA_DIR", tmp_path)
     monkeypatch.setattr(config, "HISTORY_CSV", tmp_path / "history_pm25.csv")
+    monkeypatch.setattr(config, "HISTORY_DB", tmp_path / "history.db")
 
 
 class FakeResponse:
