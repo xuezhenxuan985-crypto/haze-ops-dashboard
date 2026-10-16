@@ -19,8 +19,7 @@ theme.inject_css()
 
 st.session_state.setdefault("lang_control", "EN")
 st.session_state.setdefault("firms_key", "")
-st.session_state.setdefault("anthropic_key", "")
-st.session_state.setdefault("anthropic_workspace", "")
+st.session_state.setdefault("deepseek_key", "")
 st.session_state.setdefault("force_version", 0)
 
 
@@ -50,12 +49,8 @@ with st.sidebar:
             help=tr("sidebar_firms_help", lang),
         )
     st.text_input(
-        tr("sidebar_ai_key", lang), type="password", key="anthropic_key",
+        tr("sidebar_ai_key", lang), type="password", key="deepseek_key",
         help=tr("sidebar_ai_help", lang),
-    )
-    st.text_input(
-        tr("sidebar_ai_workspace", lang), key="anthropic_workspace",
-        help=tr("sidebar_ai_workspace_help", lang),
     )
     st.segmented_control(
         tr("sidebar_language", lang), ["EN", "中文"], key="lang_control",
@@ -149,8 +144,7 @@ def main() -> None:
 
     with tab_ai:
         components.render_ai_brief_tab(
-            snapshot, lang, st.session_state.get("anthropic_key", ""),
-            st.session_state.get("anthropic_workspace", ""))
+            snapshot, lang, st.session_state.get("deepseek_key", ""))
 
     components.render_footer(lang)
 

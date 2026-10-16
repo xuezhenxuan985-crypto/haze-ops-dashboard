@@ -113,53 +113,50 @@ def test_sanitize_does_not_touch_bare_stop_word():
 # request_ai_brief
 # ---------------------------------------------------------------------------
 def _ok_response(text: str) -> FakeResponse:
-    return FakeResponse(json_data={"content": [{"text": text}]}, status_code=200)
+    return FakeResponse(json_data={"choices": [{"message": {"content": text}}]}, status_code=200)
 
 
 def test_request_returns_text():
-    session = FakeSession({config.ANTHROPIC_URL: _ok_response("  Brief text.  ")})
+    session = FakeSession({config.DEEPSEEK_URL: _ok_response("  Brief text.  ")})
     assert request_ai_brief({"system": "s", "user": "u"}, "test-key", session=session) == "Brief text."
-    assert ("post", config.ANTHROPIC_URL) in session.calls
+    assert ("post", config.DEEPSEEK_URL) in session.calls
 
 
-def test_request_sends_workspace_header_only_when_given():
+def test_request_sends_bearer_auth_header():
     class CaptureHeaders(FakeSession):
         def post(self, url, headers=None, **kwargs):
             self.last_headers = headers or {}
             return super().post(url, headers=headers, **kwargs)
 
-    session = CaptureHeaders({config.ANTHROPIC_URL: _ok_response("ok")})
-    request_ai_brief({"system": "s", "user": "u"}, "test-key", workspace_id="ws_123", session=session)
-    assert session.last_headers.get("anthropic-workspace-id") == "ws_123"
-
+    session = CaptureHeaders({config.DEEPSEEK_URL: _ok_response("ok")})
     request_ai_brief({"system": "s", "user": "u"}, "test-key", session=session)
-    assert "anthropic-workspace-id" not in session.last_headers
+    assert session.last_headers.get("Authorization") == "Bearer test-key"
 
 
 def test_request_http_error_raises():
-    session = FakeSession({config.ANTHROPIC_URL: FakeResponse("nope", 401)})
+    session = FakeSession({config.DEEPSEEK_URL: FakeResponse("nope", 401)})
     with pytest.raises(AiBriefError, match="401"):
         request_ai_brief({"system": "s", "user": "u"}, "test-key", session=session)
 
 
 def test_request_error_includes_api_detail():
-    body = FakeResponse(json_data={"error": {"type": "not_found_error",
-                                             "message": "model: bad-name"}}, status_code=400)
-    session = FakeSession({config.ANTHROPIC_URL: body})
-    with pytest.raises(AiBriefError, match="not_found_error"):
+    body = FakeResponse(json_data={"error": {"type": "invalid_request_error",
+                                             "message": "Model Not Exist"}}, status_code=400)
+    session = FakeSession({config.DEEPSEEK_URL: body})
+    with pytest.raises(AiBriefError, match="invalid_request_error"):
         request_ai_brief({"system": "s", "user": "u"}, "test-key", session=session)
-    with pytest.raises(AiBriefError, match="bad-name"):
+    with pytest.raises(AiBriefError, match="Model Not Exist"):
         request_ai_brief({"system": "s", "user": "u"}, "test-key", session=session)
 
 
 def test_request_unparseable_raises():
-    session = FakeSession({config.ANTHROPIC_URL: FakeResponse(json_data={"content": []})})
+    session = FakeSession({config.DEEPSEEK_URL: FakeResponse(json_data={"choices": []})})
     with pytest.raises(AiBriefError, match="unparseable"):
         request_ai_brief({"system": "s", "user": "u"}, "test-key", session=session)
 
 
 def test_request_empty_text_raises():
-    session = FakeSession({config.ANTHROPIC_URL: _ok_response("   ")})
+    session = FakeSession({config.DEEPSEEK_URL: _ok_response("   ")})
     with pytest.raises(AiBriefError, match="empty"):
         request_ai_brief({"system": "s", "user": "u"}, "test-key", session=session)
 

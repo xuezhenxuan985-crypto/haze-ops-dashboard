@@ -9,7 +9,7 @@
 ## 1. 数据怎么流动（最重要的一张图）
 
 ```
-NEA 官方接口(免key)          ASMC 卫星火点(免key)        可选: NASA FIRMS / Claude AI
+NEA 官方接口(免key)          ASMC 卫星火点(免key)        可选: NASA FIRMS / DeepSeek AI
  PM2.5 · PSI · 天气           火点计数 · 警报                (key 填在侧边栏)
         │                          │                              │
         ▼                          ▼                              ▼
@@ -61,7 +61,7 @@ NEA 官方接口(免key)          ASMC 卫星火点(免key)        可选: NASA 
 | [demo_data.py](src/data/demo_data.py) | 演示模式的合成数据（三场景、固定随机种子、离线可跑） |
 | [models.py](src/data/models.py) | 数据"集装箱"（dataclass）：Snapshot 快照、RegionPM25 区域读数等 |
 | [pipeline.py](src/data/pipeline.py) | **总装车间**：把各数据源组装成 Snapshot；管全部缓存；单源失败降级不崩页 |
-| [ai_brief.py](src/data/ai_brief.py) | AI 简报：拼提示词（只喂面板数据）、调 Claude API、输出"防停工"护栏 |
+| [ai_brief.py](src/data/ai_brief.py) | AI 简报：拼提示词（只喂面板数据）、调 DeepSeek API、输出"防停工"护栏 |
 
 ### src/risk/ — 算风险（第 2 层，纯函数，不联网）
 
@@ -97,7 +97,7 @@ NEA 官方接口(免key)          ASMC 卫星火点(免key)        可选: NASA 
 | 老师问 | 口语化回答 | 代码在哪 |
 |---|---|---|
 | 项目解决什么问题？ | 工地经理不能只靠感觉安排户外工作。这个看板把官方数据变成 1–4 级风险和一句话行动建议 | 全部 |
-| 数据从哪来？要钱吗？ | NEA 官方开放接口（免 key、匿名限速）+ ASMC 卫星火点（免 key）；NASA FIRMS 和 Claude AI 是可选增强，key 由用户自己申请 | [config.py](config.py) 端点段 |
+| 数据从哪来？要钱吗？ | NEA 官方开放接口（免 key、匿名限速）+ ASMC 卫星火点（免 key）；NASA FIRMS 和 DeepSeek AI 是可选增强，key 由用户自己申请 | [config.py](config.py) 端点段 |
 | 为什么分这么多文件夹？ | 抓数据/算风险/画界面三层分开，`pipeline.py` 是唯一"总装"点——好处：改一个数据源不会弄坏计算逻辑，风险层纯函数可以离线测 | [PIPELINE_REVIEW.md](PIPELINE_REVIEW.md) 问题 1、2 |
 | 某个数据源挂了，页面会崩吗？ | 不会。每个源独立 try/except，失败就用上次成功的数据（last-good），并在页面顶部亮黄色横幅；**横幅会写明失败原因** | [pipeline.py](src/data/pipeline.py) 的 `_load_*` |
 | SQL 用在哪？为什么用？ | 每小时 PM2.5 存 SQLite（`data/history.db`）。写入用 UPSERT（主键冲突就覆盖，天然去重）；读 14 天窗口用 WHERE；区域统计用 GROUP BY。不用 CSV 是因为并发写入会互相覆盖 | [db.py](src/data/db.py) + README"SQL 使用"节 |

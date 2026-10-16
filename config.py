@@ -109,14 +109,14 @@ TTL_AI_BRIEF = 1800  # same snapshot + language -> same brief; don't re-call the
 FRAGMENT_REFRESH_S = 300
 
 # ---------------------------------------------------------------------------
-# Anthropic (Claude) — optional AI operational briefing, same pattern as FIRMS:
-# key entered in the sidebar, lives in session_state only, never persisted.
+# DeepSeek — optional AI operational briefing (OpenAI-compatible API), same
+# pattern as FIRMS: key entered in the sidebar, lives in session_state only,
+# never persisted. Get a key at https://platform.deepseek.com/
 # ---------------------------------------------------------------------------
-ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
-ANTHROPIC_VERSION = "2023-06-01"
-ANTHROPIC_MODEL = "claude-sonnet-5-5"  # full dated-family ID; a bare "claude-sonnet-5" is a 400
-ANTHROPIC_MAX_TOKENS = 700
-ANTHROPIC_TIMEOUT_S = 30.0
+DEEPSEEK_URL = "https://api.deepseek.com/chat/completions"
+DEEPSEEK_MODEL = "deepseek-chat"  # stable alias -> latest DeepSeek-V3 series
+DEEPSEEK_MAX_TOKENS = 700
+DEEPSEEK_TIMEOUT_S = 30.0
 
 # ---------------------------------------------------------------------------
 # Official band thresholds (haze.gov.sg / NEA; verified 2026-09-17)

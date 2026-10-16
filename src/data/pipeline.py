@@ -349,17 +349,15 @@ _brief_keys: dict[str, str] = {}
 
 
 @st.cache_data(ttl=config.TTL_AI_BRIEF, show_spinner=False)
-def _cached_ai_brief(payload_json: str, key_sha: str, workspace_id: str) -> str | None:
-    """One LLM call per (prompt, key, workspace) within TTL_AI_BRIEF."""
+def _cached_ai_brief(payload_json: str, key_sha: str) -> str | None:
+    """One LLM call per (prompt, key) pair within TTL_AI_BRIEF."""
     api_key = _brief_keys.get(key_sha)
     if not api_key:
         return None
-    return ai_brief.request_ai_brief(json.loads(payload_json), api_key, workspace_id)
+    return ai_brief.request_ai_brief(json.loads(payload_json), api_key)
 
 
-def fetch_ai_brief(
-    snapshot: Snapshot, lang: str, api_key: str, workspace_id: str = ""
-) -> tuple[str, bool] | None:
+def fetch_ai_brief(snapshot: Snapshot, lang: str, api_key: str) -> tuple[str, bool] | None:
     """Snapshot + language -> (brief text, wording-was-sanitized), or None.
 
     None means no key configured (the UI shows guidance instead of calling).
@@ -371,12 +369,11 @@ def fetch_ai_brief(
     api_key = api_key.strip()  # copy-paste often adds a trailing newline/space
     if not api_key:
         return None
-    workspace_id = (workspace_id or "").strip()
     payload = ai_brief.build_brief_payload(snapshot, lang)
     key_sha = hashlib.sha256(api_key.encode("utf-8")).hexdigest()
     _brief_keys[key_sha] = api_key  # session-local vault; never cached or logged
     text = _cached_ai_brief(
-        json.dumps(payload, ensure_ascii=False, sort_keys=True), key_sha, workspace_id)
+        json.dumps(payload, ensure_ascii=False, sort_keys=True), key_sha)
     if text is None:
         return None
     return ai_brief.sanitize_brief(text)

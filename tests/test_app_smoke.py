@@ -55,7 +55,7 @@ def test_analysis_tab_renders(at: AppTest):
 def test_ai_brief_tab_shows_guidance_without_key(at: AppTest):
     # No API key configured -> the tab explains how to enable it, no LLM call.
     infos = " ".join(i.value for i in at.info)
-    assert "Anthropic" in infos
+    assert "DeepSeek" in infos
     texts = " ".join(m.value for m in at.markdown)
     assert "haze.gov.sg" in texts
 

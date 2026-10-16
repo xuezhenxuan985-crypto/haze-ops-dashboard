@@ -337,8 +337,7 @@ def render_analysis_tab(snapshot: Snapshot, lang: str) -> None:
 # ---------------------------------------------------------------------------
 # AI brief tab (optional LLM feature)
 # ---------------------------------------------------------------------------
-def render_ai_brief_tab(snapshot: Snapshot, lang: str, api_key: str,
-                        workspace_id: str = "") -> None:
+def render_ai_brief_tab(snapshot: Snapshot, lang: str, api_key: str) -> None:
     """Optional AI briefing: LLM call on demand, graceful fallback without a key."""
     st.markdown(f"**{tr('ai_brief_title', lang)}**")
     st.caption(tr("ai_brief_desc", lang))
@@ -351,7 +350,7 @@ def render_ai_brief_tab(snapshot: Snapshot, lang: str, api_key: str,
     if st.button(tr("ai_brief_generate", lang)):
         try:
             with st.spinner(tr("ai_brief_loading", lang)):
-                result = pipeline.fetch_ai_brief(snapshot, lang, api_key, workspace_id)
+                result = pipeline.fetch_ai_brief(snapshot, lang, api_key)
         except Exception as exc:  # noqa: BLE001 — LLM call must never break the page
             st.warning(tr("ai_brief_error", lang, err=str(exc)), icon="⚠️")
             st.caption(tr("ai_brief_disclaimer", lang))

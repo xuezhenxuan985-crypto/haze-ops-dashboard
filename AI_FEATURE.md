@@ -39,10 +39,10 @@ today / actions / next 24 h. One-minute read, usable in morning briefings or wit
 ## 2. 集成：如何把 LLM API 集成进应用？
 ## Integration: How is the LLM API integrated?
 
-- **直接 HTTP 调用** Anthropic Messages API（`api.anthropic.com/v1/messages`，模型
-  `claude-sonnet-5`，`max_tokens=700`，超时 30s），用已有的 `requests`——不引入新依赖。
-  Direct HTTP call to the Anthropic Messages API (`claude-sonnet-5`, `max_tokens=700`, 30 s
-  timeout) with the existing `requests` library — no new dependency.
+- **直接 HTTP 调用** DeepSeek 的 OpenAI 兼容接口（`api.deepseek.com/chat/completions`，模型
+  `deepseek-chat`，`max_tokens=700`，超时 30s），用已有的 `requests`——不引入新依赖。
+  Direct HTTP call to the DeepSeek OpenAI-compatible API (`deepseek-chat`, `max_tokens=700`,
+  30 s timeout) with the existing `requests` library — no new dependency.
 - **Key 处理照搬 FIRMS 模式**：sidebar 输入 → 只存 `session_state`；缓存键用
   `sha256(key)` 的哈希，**原始 key 不进缓存参数、不落盘、不入日志**。
   Key handling copies the FIRMS pattern: sidebar input → session_state only; the cache key uses

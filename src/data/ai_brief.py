@@ -1,4 +1,4 @@
-"""Optional AI operational briefing (Claude Messages API).
+"""Optional AI operational briefing (DeepSeek chat-completions API).
 
 Turns the assembled Snapshot into a short, plain-language briefing for site
 Ops/EHS managers. Same pattern as the FIRMS enrichment: the API key comes
@@ -107,29 +107,25 @@ def build_brief_payload(snapshot: Snapshot, lang: str) -> dict[str, str]:
 def request_ai_brief(
     payload: dict[str, str],
     api_key: str,
-    workspace_id: str = "",
     session: requests.Session | None = None,
-    timeout: float = config.ANTHROPIC_TIMEOUT_S,
+    timeout: float = config.DEEPSEEK_TIMEOUT_S,
 ) -> str:
     """One LLM call; returns the brief text or raises AiBriefError."""
     session = session or requests.Session()
     headers = {
-        "x-api-key": api_key,
-        "anthropic-version": config.ANTHROPIC_VERSION,
-        "content-type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
     }
-    if workspace_id:
-        # Org-level keys (sk-ant-usr-…) are not scoped to a workspace and the
-        # API rejects them with HTTP 400 unless this header names one.
-        headers["anthropic-workspace-id"] = workspace_id
     body = {
-        "model": config.ANTHROPIC_MODEL,
-        "max_tokens": config.ANTHROPIC_MAX_TOKENS,
-        "system": payload["system"],
-        "messages": [{"role": "user", "content": payload["user"]}],
+        "model": config.DEEPSEEK_MODEL,
+        "max_tokens": config.DEEPSEEK_MAX_TOKENS,
+        "messages": [
+            {"role": "system", "content": payload["system"]},
+            {"role": "user", "content": payload["user"]},
+        ],
     }
     try:
-        resp = session.post(config.ANTHROPIC_URL, json=body, headers=headers, timeout=timeout)
+        resp = session.post(config.DEEPSEEK_URL, json=body, headers=headers, timeout=timeout)
     except requests.RequestException as exc:
         log.warning("ai brief request failed: %s", exc)
         raise AiBriefError(str(exc)) from exc
@@ -143,7 +139,7 @@ def request_ai_brief(
         log.warning("ai brief HTTP %d: %s", resp.status_code, resp.text[:200])
         raise AiBriefError(f"HTTP {resp.status_code}{detail[:200]}")
     try:
-        text = resp.json()["content"][0]["text"]
+        text = resp.json()["choices"][0]["message"]["content"]
     except (ValueError, KeyError, IndexError) as exc:
         log.warning("ai brief unparseable response: %s", exc)
         raise AiBriefError("unparseable response") from exc
