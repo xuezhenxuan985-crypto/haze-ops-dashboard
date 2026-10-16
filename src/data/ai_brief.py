@@ -107,6 +107,7 @@ def build_brief_payload(snapshot: Snapshot, lang: str) -> dict[str, str]:
 def request_ai_brief(
     payload: dict[str, str],
     api_key: str,
+    workspace_id: str = "",
     session: requests.Session | None = None,
     timeout: float = config.ANTHROPIC_TIMEOUT_S,
 ) -> str:
@@ -117,6 +118,10 @@ def request_ai_brief(
         "anthropic-version": config.ANTHROPIC_VERSION,
         "content-type": "application/json",
     }
+    if workspace_id:
+        # Org-level keys (sk-ant-usr-…) are not scoped to a workspace and the
+        # API rejects them with HTTP 400 unless this header names one.
+        headers["anthropic-workspace-id"] = workspace_id
     body = {
         "model": config.ANTHROPIC_MODEL,
         "max_tokens": config.ANTHROPIC_MAX_TOKENS,

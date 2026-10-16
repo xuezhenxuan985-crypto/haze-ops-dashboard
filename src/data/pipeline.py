@@ -30,6 +30,13 @@ log = logging.getLogger(__name__)
 
 SGT = timezone(timedelta(hours=8))
 _last_good: dict[str, object] = {}
+_last_errors: dict[str, str] = {}  # source label -> str(exc) of the last failed fetch
+
+
+def last_fetch_errors() -> dict[str, str]:
+    """Snapshot of the current fetch failures (shown in the UI so the cause
+    of a stale banner is visible without server-log access)."""
+    return dict(_last_errors)
 
 
 # ---------------------------------------------------------------------------
@@ -40,9 +47,11 @@ def _load_pm25(force_version: int) -> tuple[dict[str, RegionPM25] | None, dateti
     try:
         result = nea_pm25.fetch_pm25()
         _last_good["pm25"] = result
+        _last_errors.pop("pm25", None)
         return result
     except Exception as exc:  # noqa: BLE001
         log.warning("pm25 fetch failed: %s", exc)
+        _last_errors["pm25"] = str(exc)
         return _last_good.get("pm25") or (None, None)
 
 
@@ -51,9 +60,11 @@ def _load_psi(force_version: int) -> tuple[dict[str, RegionPSI] | None, datetime
     try:
         result = nea_psi.fetch_psi()
         _last_good["psi"] = result
+        _last_errors.pop("psi", None)
         return result
     except Exception as exc:  # noqa: BLE001
         log.warning("psi fetch failed: %s", exc)
+        _last_errors["psi"] = str(exc)
         return _last_good.get("psi") or (None, None)
 
 
@@ -62,9 +73,11 @@ def _load_weather(force_version: int) -> tuple[dict[str, RegionWeather] | None, 
     try:
         result = nea_weather.fetch_weather()
         _last_good["weather"] = result
+        _last_errors.pop("weather", None)
         return result
     except Exception as exc:  # noqa: BLE001
         log.warning("weather fetch failed: %s", exc)
+        _last_errors["weather"] = str(exc)
         return _last_good.get("weather") or (None, None)
 
 
@@ -89,9 +102,11 @@ def _load_hotspots(force_version: int) -> dict[str, SourceHotspots]:
                 if s.yesterday_count is None and row.get(source):
                     s.yesterday_count = row[source]
         _last_good["hotspots"] = sources
+        _last_errors.pop("hotspots", None)
         return sources
     except Exception as exc:  # noqa: BLE001
         log.warning("hotspot fetch failed: %s", exc)
+        _last_errors["hotspots"] = str(exc)
         return _last_good.get("hotspots") or {}
 
 
@@ -175,6 +190,7 @@ def assemble_snapshot(
     firms_points: list[dict],
     flags: list[str],
     freshness: dict[str, datetime | None],
+    data_errors: dict[str, str] | None = None,
 ) -> Snapshot:
     now = datetime.now(SGT)
     for r in pm25.values():
@@ -230,6 +246,7 @@ def assemble_snapshot(
         analysis=risk_analysis.analysis_from_history(analysis_df) if analysis_df is not None else None,
         firms_points=firms_points,
         flags=flags,
+        data_errors=data_errors or {},
     )
 
 
@@ -245,6 +262,7 @@ def _demo_inputs(scenario: str):
         analysis_df=demo_data.demo_analysis_df(scenario),
         firms_points=[], flags=["demo_data_note"],
         freshness={"pm25": t1, "psi": t2, "weather": t3, "hotspots": t4, "rss": rss.fetched_at},
+        data_errors={},
     )
 
 
@@ -318,6 +336,7 @@ def get_snapshot(mode: str, scenario: str, force_version: int, firms_key: str) -
         mode="live", pm25=pm25, psi=psi, weather=weather, hotspots_=sources,
         rss=rss, history_df=history_df, analysis_df=analysis_df,
         firms_points=firms_points, flags=flags, freshness=freshness,
+        data_errors=dict(_last_errors),
     )
 
 
@@ -330,15 +349,17 @@ _brief_keys: dict[str, str] = {}
 
 
 @st.cache_data(ttl=config.TTL_AI_BRIEF, show_spinner=False)
-def _cached_ai_brief(payload_json: str, key_sha: str) -> str | None:
-    """One LLM call per (prompt, key) pair within TTL_AI_BRIEF."""
+def _cached_ai_brief(payload_json: str, key_sha: str, workspace_id: str) -> str | None:
+    """One LLM call per (prompt, key, workspace) within TTL_AI_BRIEF."""
     api_key = _brief_keys.get(key_sha)
     if not api_key:
         return None
-    return ai_brief.request_ai_brief(json.loads(payload_json), api_key)
+    return ai_brief.request_ai_brief(json.loads(payload_json), api_key, workspace_id)
 
 
-def fetch_ai_brief(snapshot: Snapshot, lang: str, api_key: str) -> tuple[str, bool] | None:
+def fetch_ai_brief(
+    snapshot: Snapshot, lang: str, api_key: str, workspace_id: str = ""
+) -> tuple[str, bool] | None:
     """Snapshot + language -> (brief text, wording-was-sanitized), or None.
 
     None means no key configured (the UI shows guidance instead of calling).
@@ -350,11 +371,12 @@ def fetch_ai_brief(snapshot: Snapshot, lang: str, api_key: str) -> tuple[str, bo
     api_key = api_key.strip()  # copy-paste often adds a trailing newline/space
     if not api_key:
         return None
+    workspace_id = (workspace_id or "").strip()
     payload = ai_brief.build_brief_payload(snapshot, lang)
     key_sha = hashlib.sha256(api_key.encode("utf-8")).hexdigest()
     _brief_keys[key_sha] = api_key  # session-local vault; never cached or logged
     text = _cached_ai_brief(
-        json.dumps(payload, ensure_ascii=False, sort_keys=True), key_sha)
+        json.dumps(payload, ensure_ascii=False, sort_keys=True), key_sha, workspace_id)
     if text is None:
         return None
     return ai_brief.sanitize_brief(text)

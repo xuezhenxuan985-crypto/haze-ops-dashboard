@@ -10,6 +10,7 @@ import streamlit as st
 
 import config
 from src.i18n import tr
+from src.data import pipeline
 from src.data.pipeline import get_snapshot
 from src.ui import charts, components, map_view, theme
 
@@ -19,6 +20,7 @@ theme.inject_css()
 st.session_state.setdefault("lang_control", "EN")
 st.session_state.setdefault("firms_key", "")
 st.session_state.setdefault("anthropic_key", "")
+st.session_state.setdefault("anthropic_workspace", "")
 st.session_state.setdefault("force_version", 0)
 
 
@@ -51,6 +53,10 @@ with st.sidebar:
         tr("sidebar_ai_key", lang), type="password", key="anthropic_key",
         help=tr("sidebar_ai_help", lang),
     )
+    st.text_input(
+        tr("sidebar_ai_workspace", lang), key="anthropic_workspace",
+        help=tr("sidebar_ai_workspace_help", lang),
+    )
     st.segmented_control(
         tr("sidebar_language", lang), ["EN", "中文"], key="lang_control",
         label_visibility="collapsed",
@@ -79,6 +85,11 @@ def main() -> None:
     )
     if snapshot is None:
         st.error(f"{tr('flag_stale_pm25', lang)} / {tr('flag_stale_weather', lang)}")
+        errors = pipeline.last_fetch_errors()
+        if errors:
+            st.markdown("  \n".join(
+                f"**{tr('flag_cause', lang)}** ({src}): `{msg[:200]}`"
+                for src, msg in sorted(errors.items())))
         st.markdown(f"*{tr('demo_data_note', lang)}*")
         return
 
@@ -138,7 +149,8 @@ def main() -> None:
 
     with tab_ai:
         components.render_ai_brief_tab(
-            snapshot, lang, st.session_state.get("anthropic_key", ""))
+            snapshot, lang, st.session_state.get("anthropic_key", ""),
+            st.session_state.get("anthropic_workspace", ""))
 
     components.render_footer(lang)
 

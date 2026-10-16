@@ -90,6 +90,12 @@ def http_get(
             log.warning("GET %s rate-limited (429); waiting %.1fs", url, delay)
             _sleep(delay)
             continue
+        if resp.status_code == 403:
+            # data.gov.sg occasionally 403s bursts from cloud egress IPs;
+            # a retry with backoff often lands on a cleaner slot.
+            log.warning("GET %s forbidden (403); retrying", url)
+            _sleep(config.HTTP_BACKOFF_FACTOR**attempt)
+            continue
         if resp.status_code >= 500:
             log.warning("GET %s server error %d; retrying", url, resp.status_code)
             _sleep(config.HTTP_BACKOFF_FACTOR**attempt)

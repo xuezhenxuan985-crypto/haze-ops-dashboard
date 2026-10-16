@@ -84,12 +84,24 @@ def render_header(snapshot: Snapshot, lang: str) -> None:
     st.markdown("&nbsp;&nbsp;".join(parts), unsafe_allow_html=True)
 
 
+_SOURCE_BY_FLAG = {
+    "flag_stale_pm25": "pm25",
+    "flag_stale_psi": "psi",
+    "flag_stale_weather": "weather",
+    "flag_stale_hotspots": "hotspots",
+}
+
+
 def render_flags(snapshot: Snapshot, lang: str) -> None:
     for flag in snapshot.flags:
         if flag == "demo_data_note":
             st.info(tr(flag, lang), icon="🎭")
-        else:
-            st.warning(tr(flag, lang), icon="⚠️")
+            continue
+        text = tr(flag, lang)
+        detail = snapshot.data_errors.get(_SOURCE_BY_FLAG.get(flag, ""))
+        if detail:
+            text += f"  \n{tr('flag_cause', lang)}: `{detail[:200]}`"
+        st.warning(text, icon="⚠️")
 
 
 def render_rss_banner(snapshot: Snapshot, lang: str) -> None:
@@ -325,7 +337,8 @@ def render_analysis_tab(snapshot: Snapshot, lang: str) -> None:
 # ---------------------------------------------------------------------------
 # AI brief tab (optional LLM feature)
 # ---------------------------------------------------------------------------
-def render_ai_brief_tab(snapshot: Snapshot, lang: str, api_key: str) -> None:
+def render_ai_brief_tab(snapshot: Snapshot, lang: str, api_key: str,
+                        workspace_id: str = "") -> None:
     """Optional AI briefing: LLM call on demand, graceful fallback without a key."""
     st.markdown(f"**{tr('ai_brief_title', lang)}**")
     st.caption(tr("ai_brief_desc", lang))
@@ -338,7 +351,7 @@ def render_ai_brief_tab(snapshot: Snapshot, lang: str, api_key: str) -> None:
     if st.button(tr("ai_brief_generate", lang)):
         try:
             with st.spinner(tr("ai_brief_loading", lang)):
-                result = pipeline.fetch_ai_brief(snapshot, lang, api_key)
+                result = pipeline.fetch_ai_brief(snapshot, lang, api_key, workspace_id)
         except Exception as exc:  # noqa: BLE001 — LLM call must never break the page
             st.warning(tr("ai_brief_error", lang, err=str(exc)), icon="⚠️")
             st.caption(tr("ai_brief_disclaimer", lang))

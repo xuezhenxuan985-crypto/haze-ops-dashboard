@@ -120,3 +120,4 @@ class Snapshot:
     analysis: dict[str, RegionAnalysis] | None = None  # regional 14-day summaries
     firms_points: list[dict] = field(default_factory=list)  # display-only FIRMS detections
     flags: list[str] = field(default_factory=list)
+    data_errors: dict[str, str] = field(default_factory=dict)  # source label -> last fetch error

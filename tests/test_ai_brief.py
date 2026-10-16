@@ -122,6 +122,20 @@ def test_request_returns_text():
     assert ("post", config.ANTHROPIC_URL) in session.calls
 
 
+def test_request_sends_workspace_header_only_when_given():
+    class CaptureHeaders(FakeSession):
+        def post(self, url, headers=None, **kwargs):
+            self.last_headers = headers or {}
+            return super().post(url, headers=headers, **kwargs)
+
+    session = CaptureHeaders({config.ANTHROPIC_URL: _ok_response("ok")})
+    request_ai_brief({"system": "s", "user": "u"}, "test-key", workspace_id="ws_123", session=session)
+    assert session.last_headers.get("anthropic-workspace-id") == "ws_123"
+
+    request_ai_brief({"system": "s", "user": "u"}, "test-key", session=session)
+    assert "anthropic-workspace-id" not in session.last_headers
+
+
 def test_request_http_error_raises():
     session = FakeSession({config.ANTHROPIC_URL: FakeResponse("nope", 401)})
     with pytest.raises(AiBriefError, match="401"):
