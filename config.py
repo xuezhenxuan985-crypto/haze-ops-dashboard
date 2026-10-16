@@ -114,7 +114,7 @@ FRAGMENT_REFRESH_S = 300
 # ---------------------------------------------------------------------------
 ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 ANTHROPIC_VERSION = "2023-06-01"
-ANTHROPIC_MODEL = "claude-sonnet-5"
+ANTHROPIC_MODEL = "claude-sonnet-5-5"  # full dated-family ID; a bare "claude-sonnet-5" is a 400
 ANTHROPIC_MAX_TOKENS = 700
 ANTHROPIC_TIMEOUT_S = 30.0
 

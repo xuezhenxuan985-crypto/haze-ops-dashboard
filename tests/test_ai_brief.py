@@ -128,6 +128,16 @@ def test_request_http_error_raises():
         request_ai_brief({"system": "s", "user": "u"}, "test-key", session=session)
 
 
+def test_request_error_includes_api_detail():
+    body = FakeResponse(json_data={"error": {"type": "not_found_error",
+                                             "message": "model: bad-name"}}, status_code=400)
+    session = FakeSession({config.ANTHROPIC_URL: body})
+    with pytest.raises(AiBriefError, match="not_found_error"):
+        request_ai_brief({"system": "s", "user": "u"}, "test-key", session=session)
+    with pytest.raises(AiBriefError, match="bad-name"):
+        request_ai_brief({"system": "s", "user": "u"}, "test-key", session=session)
+
+
 def test_request_unparseable_raises():
     session = FakeSession({config.ANTHROPIC_URL: FakeResponse(json_data={"content": []})})
     with pytest.raises(AiBriefError, match="unparseable"):

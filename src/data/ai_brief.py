@@ -129,8 +129,14 @@ def request_ai_brief(
         log.warning("ai brief request failed: %s", exc)
         raise AiBriefError(str(exc)) from exc
     if resp.status_code != 200:
+        detail = ""
+        try:
+            err = (resp.json() or {}).get("error") or {}
+            detail = f" — {err.get('type', '')}: {err.get('message', '')}".strip(" —:")
+        except ValueError:
+            detail = f" — {resp.text[:200]}"
         log.warning("ai brief HTTP %d: %s", resp.status_code, resp.text[:200])
-        raise AiBriefError(f"HTTP {resp.status_code}")
+        raise AiBriefError(f"HTTP {resp.status_code}{detail[:200]}")
     try:
         text = resp.json()["content"][0]["text"]
     except (ValueError, KeyError, IndexError) as exc:

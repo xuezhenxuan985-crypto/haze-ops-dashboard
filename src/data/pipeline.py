@@ -347,6 +347,9 @@ def fetch_ai_brief(snapshot: Snapshot, lang: str, api_key: str) -> tuple[str, bo
     """
     if not api_key:
         return None
+    api_key = api_key.strip()  # copy-paste often adds a trailing newline/space
+    if not api_key:
+        return None
     payload = ai_brief.build_brief_payload(snapshot, lang)
     key_sha = hashlib.sha256(api_key.encode("utf-8")).hexdigest()
     _brief_keys[key_sha] = api_key  # session-local vault; never cached or logged
