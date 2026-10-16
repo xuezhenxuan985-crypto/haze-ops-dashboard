@@ -85,6 +85,8 @@ def explain_factors(
             factors.append(("factor_transport_some", {
                 "upwind": transport.upwind_points,
                 "source": f"source_{transport.dominant_source}" if transport.dominant_source else "source_sumatra",
+                "h_low": config.TRANSPORT_ARRIVAL_H[0],
+                "h_high": config.TRANSPORT_ARRIVAL_H[1],
             }))
         factors.append(("factor_transport_note", {}))
     if weather.rainfall_mm >= config.RAIN_SUPPRESSION_MM:

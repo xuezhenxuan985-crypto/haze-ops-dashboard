@@ -148,6 +148,12 @@ WEIGHT_SECTOR_MISMATCH = 0.35
 TRANSPORT_THRESHOLDS = (20.0, 80.0, 200.0)  # -> levels 1..4 (0 = none)
 HOTSPOT_SURGE_FACTOR = 1.2   # applied when today's count >= 2x yesterday's
 HOTSPOT_SURGE_RATIO = 2.0
+# Arrival-timescale copy for factor_transport_some (hours, low–high). NOT a
+# computed forecast: an expert-judgment timescale for cross-boundary haze —
+# plumes from Sumatra/Kalimantan (300–1000 km upwind) carried by the
+# prevailing monsoon typically reach Singapore 1–3 days after hotspot
+# detection, the same window NEA/ASMC advisories phrase as "next 24–72 h".
+TRANSPORT_ARRIVAL_H = (24, 72)
 
 # ---------------------------------------------------------------------------
 # Regional risk score
