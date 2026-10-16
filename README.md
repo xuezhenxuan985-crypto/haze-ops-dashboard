@@ -3,6 +3,9 @@
 面向新加坡建筑承包商的 Operations / EHS Manager：实时监测 1 小时 PM2.5 与 24 小时 PSI、
 结合 ASMC 卫星火点与站点天气计算区域风险，并给出键控 MOM 指引的户外工作决策。
 
+> 📖 **第一次看代码？先读 [CODE_GUIDE.md](CODE_GUIDE.md)** —— 每个文件一句话 + 数据流图 + 老师常问问题速查。
+> 课程作业两篇：[PIPELINE_REVIEW.md](PIPELINE_REVIEW.md)（管道工程 5 问）、[AI_FEATURE.md](AI_FEATURE.md)（AI 功能 5 问）。
+
 **运行方式**
 
 ```bash
