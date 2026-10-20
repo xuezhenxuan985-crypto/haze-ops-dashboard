@@ -4,5 +4,4 @@ pandas>=2.3
 numpy>=2.3
 requests>=2.32
 folium>=0.20
-matplotlib>=3.9
 pytest>=8.4
